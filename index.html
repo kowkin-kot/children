@@ -2139,7 +2139,103 @@
     }
 
     async function warmOfflineCache() {
-// ... existing code ... -->
+      try {
+        if ('caches' in window) {
+          const cache = await caches.open('malysh-plus-offline-v1');
+          const pageUrl = window.location.href.split('#')[0];
+          await cache.add(pageUrl).catch(() => {});
+        }
+      } catch (e) {}
+    }
+
+    function updateNetworkStatusUI() {
+      const isOnline = typeof navigator === 'undefined' ? true : navigator.onLine;
+      const isPending = currentAccountLogin ? hasPendingOfflineChanges(currentAccountLogin) : false;
+
+      const pill = document.getElementById('header-net-pill');
+      const dot = document.getElementById('header-net-dot');
+      const label = document.getElementById('header-net-label');
+      const profStatus = document.getElementById('profile-offline-status');
+
+      if (pill && dot && label) {
+        if (!isOnline) {
+          pill.className = 'inline-flex items-center justify-center gap-1.5 min-w-[34px] min-h-[38px] px-2 sm:px-2.5 py-2 rounded-xl bg-amber-50/90 dark:bg-amber-950/60 border border-amber-200/80 dark:border-amber-800/60 text-amber-700 dark:text-amber-300 text-xs font-semibold transition';
+          dot.className = 'w-2 h-2 rounded-full bg-amber-500 shrink-0';
+          label.textContent = 'Офлайн';
+        } else if (isPending) {
+          pill.className = 'inline-flex items-center justify-center gap-1.5 min-w-[34px] min-h-[38px] px-2 sm:px-2.5 py-2 rounded-xl bg-sky-50/90 dark:bg-sky-950/60 border border-sky-200/80 dark:border-sky-800/60 text-sky-700 dark:text-sky-300 text-xs font-semibold transition';
+          dot.className = 'w-2 h-2 rounded-full bg-sky-500 animate-pulse shrink-0';
+          label.textContent = 'Синхр...';
+        } else {
+          pill.className = 'inline-flex items-center justify-center gap-1.5 min-w-[34px] min-h-[38px] px-2 sm:px-2.5 py-2 rounded-xl bg-emerald-50/90 dark:bg-emerald-950/50 border border-emerald-200/70 dark:border-emerald-800/60 text-emerald-700 dark:text-emerald-300 text-xs font-semibold transition';
+          dot.className = 'w-2 h-2 rounded-full bg-emerald-500 shrink-0';
+          label.textContent = 'Онлайн';
+        }
+      }
+
+      if (profStatus) {
+        if (!isOnline) {
+          profStatus.className = 'text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/70 text-amber-700 dark:text-amber-300';
+          profStatus.textContent = 'Офлайн • Сохраняется локально';
+        } else if (isPending) {
+          profStatus.className = 'text-[11px] font-semibold px-2 py-0.5 rounded-full bg-sky-100 dark:bg-sky-950/70 text-sky-700 dark:text-sky-300';
+          profStatus.textContent = 'Ожидает синхронизации';
+        } else {
+          profStatus.className = 'text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300';
+          profStatus.textContent = 'Онлайн • Готово к офлайну';
+        }
+      }
+    }
+
+    function showNetworkStatusToast() {
+      const isOnline = typeof navigator === 'undefined' ? true : navigator.onLine;
+      const isPending = currentAccountLogin ? hasPendingOfflineChanges(currentAccountLogin) : false;
+      if (!isOnline) {
+        showToast('Офлайн-режим: все записи сохраняются на устройстве и отправятся при появлении сети');
+      } else if (isPending) {
+        flushPendingSync(true);
+        showToast('Синхронизация накопленных офлайн-записей...');
+      } else {
+        showToast('Подключено к облаку • Локальная копия для офлайн-работы активна');
+      }
+    }
+
+    function renderPwaInstallUI() {
+      const standalone = isStandalonePwa();
+      const profBtn = document.getElementById('profile-pwa-install-btn');
+      const profLabel = document.getElementById('profile-pwa-install-label');
+      if (profBtn && profLabel) {
+        if (standalone) {
+          profLabel.textContent = 'Установлено на экран «Домой»';
+          profBtn.disabled = true;
+          profBtn.classList.add('opacity-70');
+        } else {
+          profLabel.textContent = 'Установить на экран «Домой»';
+          profBtn.disabled = false;
+          profBtn.classList.remove('opacity-70');
+        }
+      }
+
+      const banner = document.getElementById('pwa-install-banner');
+      if (!banner) return;
+
+      if (standalone || !currentAccountLogin) {
+        banner.classList.add('hidden');
+        banner.innerHTML = '';
+        return;
+      }
+
+      let dismissedUntil = 0;
+      try {
+        dismissedUntil = Number(localStorage.getItem('malysh_plus_pwa_dismissed_until') || '0');
+      } catch (e) {}
+
+      if (dismissedUntil > Date.now() && !deferredInstallPrompt) {
+        banner.classList.add('hidden');
+        banner.innerHTML = '';
+        return;
+      }
+
       banner.classList.remove('hidden');
       const iconThumbHtml = cachedAppIconDataUrl
         ? `<img src="${cachedAppIconDataUrl}" alt="Малыш+" class="w-10 h-10 rounded-xl shadow-2xs shrink-0 object-cover" />`
