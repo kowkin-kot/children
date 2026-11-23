@@ -55,11 +55,33 @@
     .animate-fade-in {
       animation: fadeIn 0.22s ease-out forwards;
     }
-    input[type="date"]::-webkit-calendar-picker-indicator {
+    input, select, textarea {
+      box-sizing: border-box;
+      max-width: 100%;
+      min-width: 0;
+    }
+    input[type="date"],
+    input[type="datetime-local"] {
+      -webkit-appearance: none;
+      appearance: none;
+      display: block;
+      width: 100%;
+      min-width: 0;
+      max-width: 100%;
+      min-height: 2.5rem;
+    }
+    input[type="date"]::-webkit-date-and-time-value,
+    input[type="datetime-local"]::-webkit-date-and-time-value {
+      text-align: left;
+      min-width: 0;
+    }
+    input[type="date"]::-webkit-calendar-picker-indicator,
+    input[type="datetime-local"]::-webkit-calendar-picker-indicator {
       opacity: 0.65;
       cursor: pointer;
     }
-    .dark input[type="date"]::-webkit-calendar-picker-indicator {
+    .dark input[type="date"]::-webkit-calendar-picker-indicator,
+    .dark input[type="datetime-local"]::-webkit-calendar-picker-indicator {
       filter: invert(1);
     }
   </style>
@@ -130,7 +152,7 @@
             <label for="auth-baby-dob" class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
               Дата рождения
             </label>
-            <input type="date" id="auth-baby-dob" class="w-full px-3.5 py-2.5 rounded-xl bg-warmgray/70 dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-rose-400" />
+            <input type="date" id="auth-baby-dob" class="w-full min-w-0 px-3.5 py-2.5 rounded-xl bg-warmgray/70 dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-rose-400" />
           </div>
         </div>
 
@@ -293,6 +315,10 @@
             <input type="number" id="feeding-amount-input" min="5" max="500" placeholder="Объём / вес (мл или г)" class="w-full px-3 py-1.5 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-rose-400" />
           </div>
 
+          <div id="feeding-breast-hint" class="text-[11px] text-slate-600 dark:text-slate-300 flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl bg-rose-50/70 dark:bg-rose-950/35 border border-rose-100/80 dark:border-rose-900/40">
+            <span>Подсказка: чередуйте <strong>левую</strong> и <strong>правую</strong> грудь</span>
+          </div>
+
           <button type="button" id="btn-toggle-feeding" onclick="toggleTimer('feeding')" class="w-full min-h-[40px] py-2 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold transition">
             Начать кормление
           </button>
@@ -300,14 +326,17 @@
 
         <!-- Таймер сна -->
         <div class="bg-white dark:bg-slate-900 rounded-3xl border border-stone-200/70 dark:border-slate-800 p-4 space-y-3 shadow-2xs">
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-2">
-              <span class="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-500 flex items-center justify-center">
+          <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-500 flex items-center justify-center shrink-0">
                 <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
               </span>
               <span class="font-display font-bold text-sm text-slate-900 dark:text-slate-100">Сон</span>
+              <button type="button" id="sleep-type-badge" onclick="toggleActiveSleepType()" title="Определяется автоматически по времени включения (19:00–07:00 — ночной, 07:00–19:00 — дневной)" class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950/70 text-indigo-600 dark:text-indigo-300 border border-indigo-200/70 dark:border-indigo-800/60 transition truncate">
+                Дневной сон
+              </button>
             </div>
-            <span id="timer-sleep-display" class="font-mono font-bold text-base text-indigo-500">00:00</span>
+            <span id="timer-sleep-display" class="font-mono font-bold text-base text-indigo-500 shrink-0">00:00</span>
           </div>
           <p id="sleep-last-info" class="text-[11px] text-slate-500 dark:text-slate-400">Отслеживайте дневные и ночные сны малыша</p>
           <button type="button" id="btn-toggle-sleep" onclick="toggleTimer('sleep')" class="w-full min-h-[40px] py-2 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold transition">
@@ -455,20 +484,20 @@
 
         <!-- Форма добавления замера -->
         <form onsubmit="addGrowthRecord(event)" class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2 border-t border-stone-100 dark:border-slate-800">
-          <div>
+          <div class="col-span-2 sm:col-span-1 min-w-0">
             <label class="block text-[11px] font-semibold text-slate-500 mb-1">Дата замера</label>
-            <input type="date" id="growth-date-input" required class="w-full px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-rose-400" />
+            <input type="date" id="growth-date-input" required class="w-full min-w-0 px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-rose-400" />
           </div>
-          <div>
+          <div class="min-w-0">
             <label class="block text-[11px] font-semibold text-slate-500 mb-1">Вес (кг)</label>
-            <input type="number" step="0.01" min="0.5" max="35" id="growth-weight-input" placeholder="Например: 6.45" class="w-full px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-rose-400" />
+            <input type="number" step="0.01" min="0.5" max="35" id="growth-weight-input" placeholder="Например: 6.45" class="w-full min-w-0 px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-rose-400" />
           </div>
-          <div>
+          <div class="min-w-0">
             <label class="block text-[11px] font-semibold text-slate-500 mb-1">Рост (см)</label>
-            <input type="number" step="0.1" min="35" max="135" id="growth-height-input" placeholder="Например: 63.5" class="w-full px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-rose-400" />
+            <input type="number" step="0.1" min="35" max="135" id="growth-height-input" placeholder="Например: 63.5" class="w-full min-w-0 px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-rose-400" />
           </div>
-          <div class="flex items-end">
-            <button type="submit" class="w-full min-h-[36px] py-2 px-3 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold transition">
+          <div class="col-span-2 sm:col-span-1 flex items-end min-w-0">
+            <button type="submit" class="w-full min-h-[38px] py-2 px-3 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold transition">
               + Сохранить замер
             </button>
           </div>
@@ -507,14 +536,14 @@
 
         <form onsubmit="addDiaryEntry(event)" class="space-y-3">
           <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-            <input type="date" id="diary-date-input" required class="px-3.5 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-rose-400" />
-            <select id="diary-tag-input" class="px-3.5 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-rose-400">
+            <input type="date" id="diary-date-input" required class="w-full min-w-0 px-3.5 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-rose-400" />
+            <select id="diary-tag-input" class="w-full min-w-0 px-3.5 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-rose-400">
               <option value="Достижение">Достижение</option>
               <option value="Первое слово">Первое слово</option>
               <option value="Настроение">Настроение и режим</option>
               <option value="Вопрос врачу">Вопрос педиатру</option>
             </select>
-            <input type="text" id="diary-title-input" required placeholder="Заголовок (например: Перевернулся на живот)" class="px-3.5 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-rose-400" />
+            <input type="text" id="diary-title-input" required placeholder="Заголовок (например: Перевернулся на живот)" class="w-full min-w-0 px-3.5 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-rose-400" />
           </div>
           <textarea id="diary-text-input" rows="2" placeholder="Подробности момента..." class="w-full px-3.5 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-rose-400"></textarea>
           <button type="submit" class="px-4 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold transition">
@@ -551,7 +580,7 @@
 
         <div>
           <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Дата рождения</label>
-          <input type="date" id="profile-dob-input" required class="w-full px-3.5 py-2.5 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-rose-400" />
+          <input type="date" id="profile-dob-input" required class="w-full min-w-0 px-3.5 py-2.5 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-rose-400" />
         </div>
 
         <div>
@@ -691,15 +720,15 @@
           <span class="text-xs font-bold text-slate-800 dark:text-slate-100">Зуб уже прорезался</span>
         </label>
 
-        <div>
+        <div class="min-w-0">
           <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Дата появления</label>
-          <input type="date" id="tooth-date-input" class="w-full px-3.5 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs" />
+          <input type="date" id="tooth-date-input" class="w-full min-w-0 px-3.5 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs" />
         </div>
 
         <div>
           <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">Симптомы при прорезывании</label>
-          <div id="tooth-symptoms-chips" class="flex flex-wrap gap-1.5">
-            <!-- Чипы симптомов -->
+          <div id="tooth-symptoms-grid" class="grid grid-cols-2 gap-1.5">
+            <!-- Рендерится из JS -->
           </div>
         </div>
 
@@ -730,14 +759,14 @@
           <span class="text-xs font-bold text-slate-800 dark:text-slate-100">Выполнено / пройдено</span>
         </label>
 
-        <div class="grid grid-cols-2 gap-2">
-          <div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div class="min-w-0">
             <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Фактическая дата</label>
-            <input type="date" id="vac-date-input" class="w-full px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs" />
+            <input type="date" id="vac-date-input" class="w-full min-w-0 px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs" />
           </div>
-          <div>
+          <div class="min-w-0">
             <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Серия / кабинет</label>
-            <input type="text" id="vac-series-input" placeholder="Например: А-412" class="w-full px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs" />
+            <input type="text" id="vac-series-input" placeholder="Например: А-412" class="w-full min-w-0 px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs" />
           </div>
         </div>
 
@@ -778,14 +807,14 @@
             <option value="diaper_dirty">Грязный подгузник</option>
           </select>
         </div>
-        <div class="grid grid-cols-2 gap-2">
-          <div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div class="min-w-0">
             <label class="block text-xs font-semibold mb-1">Время начала</label>
-            <input type="datetime-local" id="manual-log-start" required class="w-full px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs" />
+            <input type="datetime-local" id="manual-log-start" required class="w-full min-w-0 px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs" />
           </div>
-          <div>
+          <div class="min-w-0">
             <label class="block text-xs font-semibold mb-1">Длительность (мин)</label>
-            <input type="number" id="manual-log-duration" min="0" max="900" value="20" class="w-full px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs" />
+            <input type="number" id="manual-log-duration" min="0" max="900" value="20" class="w-full min-w-0 px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs" />
           </div>
         </div>
         <div>
@@ -819,7 +848,7 @@
   </div>
 
   <!-- Всплывающее уведомление (Toast) -->
-  <div id="toast-box" class="fixed bottom-20 lg:bottom-6 left-1/2 -translate-x-1/2 z-[80] pointer-events-none opacity-0 transition-opacity duration-200">
+  <div id="toast-box" class="fixed bottom-24 lg:bottom-6 left-1/2 -translate-x-1/2 z-[80] pointer-events-none opacity-0 transition-opacity duration-200">
     <div id="toast-text" class="px-4 py-2.5 rounded-2xl bg-slate-900/95 dark:bg-slate-100/95 text-white dark:text-slate-900 text-xs font-semibold shadow-lg text-center max-w-[90vw]"></div>
   </div>
 
@@ -1042,7 +1071,6 @@
 
     // 20 молочных зубов с координатами на анатомической дуге (viewBox 360x326)
     const PRIMARY_TEETH = [
-      // Верхняя челюсть (дуга вниз)
       { id: '55', jaw: 'upper', kind: 'molar',   x: 56,  y: 136, name: 'Верхний второй моляр (справа)', norm: '23–33 мес.' },
       { id: '54', jaw: 'upper', kind: 'molar',   x: 68,  y: 102, name: 'Верхний первый моляр (справа)', norm: '13–19 мес.' },
       { id: '53', jaw: 'upper', kind: 'canine',  x: 92,  y: 72,  name: 'Верхний клык (справа)', norm: '16–22 мес.' },
@@ -1053,7 +1081,6 @@
       { id: '63', jaw: 'upper', kind: 'canine',  x: 268, y: 72,  name: 'Верхний клык (слева)', norm: '16–22 мес.' },
       { id: '64', jaw: 'upper', kind: 'molar',   x: 292, y: 102, name: 'Верхний первый моляр (слева)', norm: '13–19 мес.' },
       { id: '65', jaw: 'upper', kind: 'molar',   x: 304, y: 136, name: 'Верхний второй моляр (слева)', norm: '23–33 мес.' },
-      // Нижняя челюсть (дуга вверх)
       { id: '85', jaw: 'lower', kind: 'molar',   x: 56,  y: 190, name: 'Нижний второй моляр (справа)', norm: '23–31 мес.' },
       { id: '84', jaw: 'lower', kind: 'molar',   x: 68,  y: 224, name: 'Нижний первый моляр (справа)', norm: '14–18 мес.' },
       { id: '83', jaw: 'lower', kind: 'canine',  x: 92,  y: 254, name: 'Нижний клык (справа)', norm: '17–23 мес.' },
@@ -1201,7 +1228,7 @@
         completedMilestones: {},
         timers: {
           feeding: { active: false, startTime: null, subtype: 'left' },
-          sleep: { active: false, startTime: null },
+          sleep: { active: false, startTime: null, sleepType: null },
           walk: { active: false, startTime: null }
         },
         journalLogs: [],
@@ -2073,7 +2100,7 @@
     }
 
     // =========================================================================
-    // 6. РЕНДЕР: ШАПКА, НЕДЕЛИ (1–260), ЖУРНАЛ, ЗДОРОВЬЕ, ВОЗ, СОВЕТЫ, ДНЕВНИК
+    // 6. РЕНДЕР: ШАПКА И ПОНЕДЕЛЬНЫЙ КАЛЕНДАРЬ (1–260 НЕДЕЛЬ)
     // =========================================================================
     function renderHeader() {
       const nameEl = document.getElementById('header-baby-name');
@@ -2232,7 +2259,9 @@
       `;
     }
 
-    // ==================== ЖУРНАЛ, ТАЙМЕРЫ И 24-ЧАСОВАЯ ДИАГРАММА ====================
+    // =========================================================================
+    // 7. ЖУРНАЛ, ТАЙМЕРЫ И 24-ЧАСОВАЯ АНАЛИТИКА СУТОЧНОГО РИТМА
+    // =========================================================================
     function formatDurationMMSS(ms) {
       const totalSec = Math.max(0, Math.floor(ms / 1000));
       const h = Math.floor(totalSec / 3600);
@@ -2254,7 +2283,98 @@
       if (amtWrap) {
         amtWrap.classList.toggle('hidden', sub !== 'bottle' && sub !== 'solids');
       }
+      updateFeedingBreastHint();
       saveState();
+    }
+
+    function getLastBreastSide() {
+      const lastBreastLog = appState.journalLogs.find(l => {
+        if (l.subtype === 'left' || l.subtype === 'right') return true;
+        if (l.type === 'feeding' && typeof l.label === 'string') {
+          return l.label.includes('Левая грудь') || l.label.includes('Правая грудь');
+        }
+        return false;
+      });
+      if (!lastBreastLog) return null;
+      if (lastBreastLog.subtype === 'left' || (lastBreastLog.label && lastBreastLog.label.includes('Левая грудь'))) {
+        return 'left';
+      }
+      return 'right';
+    }
+
+    function updateFeedingBreastHint() {
+      const hintEl = document.getElementById('feeding-breast-hint');
+      if (!hintEl) return;
+
+      const lastSide = getLastBreastSide();
+      if (!lastSide) {
+        hintEl.innerHTML = `<span>Подсказка: чередуйте <strong>левую</strong> и <strong>правую</strong> грудь</span>`;
+        return;
+      }
+
+      const nextSide = lastSide === 'left' ? 'right' : 'left';
+      const lastWord = lastSide === 'left' ? 'левая' : 'правая';
+      const nextWord = nextSide === 'left' ? 'Левая грудь' : 'Правая грудь';
+      const isSelected = appState.timers.feeding.subtype === nextSide;
+
+      hintEl.innerHTML = `
+        <span class="truncate">Прошлая: <strong>${lastWord}</strong> • Следующая: <strong class="text-rose-600 dark:text-rose-300">${nextWord}</strong></span>
+        ${!appState.timers.feeding.active && !isSelected
+          ? `<button type="button" onclick="setFeedingSubtype('${nextSide}')" class="shrink-0 px-2 py-0.5 rounded-lg bg-rose-500 hover:bg-rose-600 text-white text-[10px] font-bold transition">Выбрать</button>`
+          : `<span class="shrink-0 text-[10px] font-bold text-rose-500">${isSelected ? 'Выбрана' : ''}</span>`}
+      `;
+    }
+
+    function classifySleepTypeByTimestamp(tsMs) {
+      const d = new Date(tsMs || Date.now());
+      const hour = d.getHours();
+      return (hour >= 19 || hour < 7) ? 'night' : 'day';
+    }
+
+    function toggleActiveSleepType() {
+      const t = appState.timers.sleep;
+      if (!t || !t.active) {
+        const autoType = classifySleepTypeByTimestamp(Date.now());
+        showToast(`Отметка ставится автоматически по времени старта (сейчас: ${autoType === 'night' ? 'ночной сон' : 'дневной сон'})`);
+        return;
+      }
+      const current = t.sleepType || classifySleepTypeByTimestamp(t.startTime);
+      t.sleepType = current === 'night' ? 'day' : 'night';
+      updateTimerDisplays();
+      saveState();
+      showToast(`Тип сна изменён: ${t.sleepType === 'night' ? 'Ночной сон' : 'Дневной сон'}`);
+    }
+
+    function updateSleepTypeUI() {
+      const t = appState.timers.sleep;
+      const badge = document.getElementById('sleep-type-badge');
+      const infoEl = document.getElementById('sleep-last-info');
+      if (!badge || !infoEl) return;
+
+      const isActive = Boolean(t && t.active && t.startTime);
+      const sleepType = isActive
+        ? (t.sleepType || classifySleepTypeByTimestamp(t.startTime))
+        : classifySleepTypeByTimestamp(Date.now());
+
+      if (sleepType === 'night') {
+        badge.textContent = 'Ночной сон';
+        badge.className = 'px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-600 text-white dark:bg-indigo-500 transition truncate';
+      } else {
+        badge.textContent = 'Дневной сон';
+        badge.className = 'px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-50 dark:bg-sky-950/70 text-sky-700 dark:text-sky-300 border border-sky-200/80 dark:border-sky-800/60 transition truncate';
+      }
+
+      if (isActive) {
+        const startStr = new Date(t.startTime).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+        infoEl.textContent = `Автоотметка: ${sleepType === 'night' ? 'ночной сон' : 'дневной сон'} (уснул в ${startStr})`;
+      } else {
+        const lastSleep = appState.journalLogs.find(l => l.type === 'sleep');
+        if (lastSleep) {
+          infoEl.textContent = `Прошлый: ${lastSleep.label} (${lastSleep.detail}) • Сейчас: ${sleepType === 'night' ? 'ночной' : 'дневной'}`;
+        } else {
+          infoEl.textContent = `По времени сейчас: ${sleepType === 'night' ? 'ночной сон (19:00–07:00)' : 'дневной сон (07:00–19:00)'}`;
+        }
+      }
     }
 
     function toggleTimer(type) {
@@ -2264,24 +2384,36 @@
       if (!t.active) {
         t.active = true;
         t.startTime = Date.now();
-        showToast(type === 'feeding' ? 'Таймер кормления запущен' : type === 'sleep' ? 'Таймер сна запущен' : 'Таймер прогулки запущен');
+        if (type === 'sleep') {
+          t.sleepType = classifySleepTypeByTimestamp(t.startTime);
+          showToast(t.sleepType === 'night' ? 'Таймер ночного сна запущен' : 'Таймер дневного сна запущен');
+        } else {
+          showToast(type === 'feeding' ? 'Таймер кормления запущен' : 'Таймер прогулки запущен');
+        }
       } else {
         const endTime = Date.now();
         const durationMin = Math.max(1, Math.round((endTime - t.startTime) / 60000));
         let label = '';
         let detail = `${durationMin} мин`;
+        let savedSubtype = undefined;
+        let savedSleepType = undefined;
 
         if (type === 'feeding') {
           const subNames = { left: 'Левая грудь', right: 'Правая грудь', bottle: 'Бутылочка', solids: 'Прикорм' };
           const sub = t.subtype || 'left';
+          savedSubtype = sub;
           label = `Кормление (${subNames[sub] || 'ГВ'})`;
           const amt = document.getElementById('feeding-amount-input')?.value;
           if (amt && (sub === 'bottle' || sub === 'solids')) {
             detail += ` • ${amt} ${sub === 'bottle' ? 'мл' : 'г'}`;
             document.getElementById('feeding-amount-input').value = '';
           }
+          if (sub === 'left' || sub === 'right') {
+            t.subtype = sub === 'left' ? 'right' : 'left';
+          }
         } else if (type === 'sleep') {
-          label = 'Сон';
+          savedSleepType = t.sleepType || classifySleepTypeByTimestamp(t.startTime);
+          label = savedSleepType === 'night' ? 'Ночной сон' : 'Дневной сон';
         } else {
           label = 'Прогулка';
         }
@@ -2289,6 +2421,8 @@
         appState.journalLogs.unshift({
           id: 'log_' + Date.now(),
           type,
+          subtype: savedSubtype,
+          sleepType: savedSleepType,
           label,
           detail,
           startTime: t.startTime,
@@ -2298,6 +2432,7 @@
 
         t.active = false;
         t.startTime = null;
+        if (type === 'sleep') t.sleepType = null;
         showToast(`Сохранено: ${label} (${detail})`);
       }
       updateTimerDisplays();
@@ -2324,6 +2459,7 @@
           btn.classList.remove('ring-2', 'ring-offset-2', 'ring-rose-400');
         }
       });
+      updateSleepTypeUI();
     }
 
     function addQuickCareLog(type, label) {
@@ -2332,7 +2468,7 @@
         id: 'log_' + now,
         type,
         label,
-        detail: 'Отмечено в журнале',
+        detail: 'Отмечено',
         startTime: now,
         endTime: now,
         durationMin: 0
@@ -2340,20 +2476,14 @@
       renderJournalTab();
       evaluateSmartNotifications(false);
       saveState();
-      showToast(`Отмечено: ${label}`);
-    }
-
-    function deleteJournalLog(id) {
-      appState.journalLogs = appState.journalLogs.filter(l => l.id !== id);
-      renderJournalTab();
-      saveState();
+      showToast(`Добавлено: ${label}`);
     }
 
     function openManualLogModal() {
       const now = new Date();
       const localIso = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-      const inp = document.getElementById('manual-log-start');
-      if (inp) inp.value = localIso;
+      const startInput = document.getElementById('manual-log-start');
+      if (startInput) startInput.value = localIso;
       openModal('modal-manual-log');
     }
 
@@ -2361,134 +2491,164 @@
       event.preventDefault();
       const type = document.getElementById('manual-log-type').value;
       const startVal = document.getElementById('manual-log-start').value;
-      const dur = parseInt(document.getElementById('manual-log-duration').value, 10) || 0;
+      const dur = Math.max(0, parseInt(document.getElementById('manual-log-duration').value || '0', 10));
       const note = (document.getElementById('manual-log-note').value || '').trim();
 
       const startMs = startVal ? new Date(startVal).getTime() : Date.now();
       const endMs = startMs + dur * 60000;
       const typeLabels = {
         feeding: 'Кормление',
-        sleep: 'Сон',
+        sleep: classifySleepTypeByTimestamp(startMs) === 'night' ? 'Ночной сон' : 'Дневной сон',
         walk: 'Прогулка',
         diaper_wet: 'Мокрый подгузник',
         diaper_dirty: 'Грязный подгузник'
       };
 
+      let subtype = undefined;
+      if (type === 'feeding') {
+        const lowerNote = note.toLowerCase();
+        if (lowerNote.includes('лев')) subtype = 'left';
+        else if (lowerNote.includes('прав')) subtype = 'right';
+      }
+
       appState.journalLogs.unshift({
         id: 'log_' + Date.now(),
         type,
-        label: typeLabels[type] || 'Событие',
-        detail: note || (dur > 0 ? `${dur} мин` : 'Ручная запись'),
+        subtype,
+        sleepType: type === 'sleep' ? classifySleepTypeByTimestamp(startMs) : undefined,
+        label: typeLabels[type] || 'Запись',
+        detail: note || (dur > 0 ? `${dur} мин` : 'Отмечено'),
         startTime: startMs,
         endTime: endMs,
         durationMin: dur
       });
 
-      appState.journalLogs.sort((a, b) => b.startTime - a.startTime);
+      appState.journalLogs.sort((a, b) => (b.startTime || 0) - (a.startTime || 0));
+      document.getElementById('manual-log-note').value = '';
       closeModal('modal-manual-log');
       renderJournalTab();
       saveState();
       showToast('Запись добавлена в журнал');
     }
 
+    function deleteJournalLog(id) {
+      appState.journalLogs = appState.journalLogs.filter(l => l.id !== id);
+      renderJournalTab();
+      saveState();
+      showToast('Запись удалена');
+    }
+
     function setRhythmDays(days) {
       appState.rhythmDays = days;
-      renderJournalTab();
+      renderRhythmAnalytics();
       saveState();
     }
 
-    function render24hRhythmAnalytics() {
-      const container = document.getElementById('rhythm-analytics-container');
-      if (!container) return;
-
-      const daysCount = appState.rhythmDays || 7;
-      const b7 = document.getElementById('rhythm-btn-7');
-      const b14 = document.getElementById('rhythm-btn-14');
-      if (b7 && b14) {
-        b7.className = daysCount === 7
+    function renderRhythmAnalytics() {
+      const days = appState.rhythmDays || 7;
+      const btn7 = document.getElementById('rhythm-btn-7');
+      const btn14 = document.getElementById('rhythm-btn-14');
+      if (btn7 && btn14) {
+        btn7.className = days === 7
           ? 'px-2.5 py-1 rounded-lg text-xs font-bold bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-2xs transition'
           : 'px-2.5 py-1 rounded-lg text-xs font-bold text-slate-500 dark:text-slate-400 transition';
-        b14.className = daysCount === 14
+        btn14.className = days === 14
           ? 'px-2.5 py-1 rounded-lg text-xs font-bold bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-2xs transition'
           : 'px-2.5 py-1 rounded-lg text-xs font-bold text-slate-500 dark:text-slate-400 transition';
       }
 
-      const rows = [];
-      let totalSleepMins = 0;
-      let daysWithSleep = 0;
+      const container = document.getElementById('rhythm-analytics-container');
+      if (!container) return;
 
-      for (let i = 0; i < daysCount; i++) {
-        const d = new Date();
-        d.setHours(0, 0, 0, 0);
-        d.setDate(d.getDate() - i);
-        const dayStart = d.getTime();
-        const dayEnd = dayStart + 86400000;
-        const dateLabel = i === 0 ? 'Сегодня' : i === 1 ? 'Вчера' : d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      let totalSleepMin = 0;
+      let daysWithLogs = 0;
+      const rowsHtml = [];
+
+      for (let i = 0; i < days; i++) {
+        const dayStart = new Date(today.getTime() - i * 86400000);
+        const dayStartMs = dayStart.getTime();
+        const dayEndMs = dayStartMs + 86400000;
 
         const dayLogs = appState.journalLogs.filter(l => {
           const s = l.startTime || 0;
           const e = l.endTime || s;
-          return e >= dayStart && s < dayEnd;
+          return e > dayStartMs && s < dayEndMs;
         });
 
         let daySleep = 0;
-        let segmentsHtml = '';
-
-        dayLogs.forEach(l => {
-          const s = Math.max(dayStart, l.startTime || dayStart);
-          const e = Math.min(dayEnd, Math.max(s + 900000, l.endTime || s + 900000));
-          const leftPct = ((s - dayStart) / 86400000) * 100;
+        const segments = dayLogs.map(l => {
+          const s = Math.max(dayStartMs, l.startTime || dayStartMs);
+          const e = Math.min(dayEndMs, Math.max(s + 15 * 60000, l.endTime || s + 15 * 60000));
+          const leftPct = ((s - dayStartMs) / 86400000) * 100;
           const widthPct = Math.max(1.4, ((e - s) / 86400000) * 100);
 
-          let color = 'bg-slate-400';
           if (l.type === 'sleep') {
-            color = 'bg-indigo-500';
             daySleep += Math.round((e - s) / 60000);
-          } else if (l.type === 'feeding') {
-            color = 'bg-rose-500';
-          } else if (l.type === 'walk') {
-            color = 'bg-emerald-500';
-          } else {
-            return;
           }
 
-          segmentsHtml += `<span title="${l.label}" style="left:${leftPct.toFixed(1)}%;width:${widthPct.toFixed(1)}%" class="absolute top-0 bottom-0 ${color} rounded-xs opacity-90"></span>`;
-        });
+          let colorClass = 'bg-slate-400';
+          if (l.type === 'sleep') {
+            const st = l.sleepType || classifySleepTypeByTimestamp(l.startTime);
+            colorClass = st === 'night' ? 'bg-indigo-600' : 'bg-sky-400';
+          } else if (l.type === 'feeding') {
+            colorClass = 'bg-rose-500';
+          } else if (l.type === 'walk') {
+            colorClass = 'bg-emerald-500';
+          } else {
+            colorClass = 'bg-amber-400';
+          }
+
+          return `<span title="${l.label} (${l.detail})" style="left:${leftPct.toFixed(2)}%;width:${widthPct.toFixed(2)}%" class="absolute top-0 bottom-0 rounded-xs ${colorClass} opacity-90"></span>`;
+        }).join('');
 
         if (daySleep > 0) {
-          totalSleepMins += daySleep;
-          daysWithSleep++;
+          totalSleepMin += daySleep;
+          daysWithLogs++;
         }
 
-        rows.push(`
+        const dateLabel = i === 0
+          ? 'Сегодня'
+          : i === 1
+            ? 'Вчера'
+            : dayStart.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
+
+        rowsHtml.push(`
           <div class="flex items-center gap-2 text-[11px]">
-            <span class="w-14 text-slate-500 dark:text-slate-400 font-medium shrink-0">${dateLabel}</span>
-            <div class="relative flex-1 h-4 rounded-md bg-warmgray dark:bg-slate-800 overflow-hidden">
-              ${segmentsHtml}
+            <span class="w-14 shrink-0 font-semibold text-slate-600 dark:text-slate-300 truncate">${dateLabel}</span>
+            <div class="relative flex-1 h-4 rounded-md bg-warmgray/90 dark:bg-slate-800 overflow-hidden">
+              ${segments}
             </div>
-            <span class="w-12 text-right font-semibold text-slate-600 dark:text-slate-300 shrink-0">${daySleep > 0 ? (daySleep / 60).toFixed(1) + ' ч' : '—'}</span>
+            <span class="w-12 shrink-0 text-right font-mono text-[10px] text-slate-500">${daySleep > 0 ? (daySleep / 60).toFixed(1) + ' ч' : '—'}</span>
           </div>
         `);
       }
 
-      const avgSleep = daysWithSleep > 0 ? (totalSleepMins / daysWithSleep / 60).toFixed(1) + ' ч/сут' : 'пока нет данных';
+      const avgSleepText = daysWithLogs > 0
+        ? `Средний сон за отмеченные дни: <strong>${(totalSleepMin / daysWithLogs / 60).toFixed(1)} ч/сутки</strong>`
+        : 'Запускайте таймеры сна, кормления и прогулок — здесь появится картина суточного ритма';
 
       container.innerHTML = `
-        <div class="space-y-2.5">
-          <div class="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500 dark:text-slate-400">
-            <div class="flex items-center gap-3">
-              <span class="inline-flex items-center gap-1"><i class="w-2.5 h-2.5 rounded-xs bg-indigo-500 inline-block"></i> Сон</span>
-              <span class="inline-flex items-center gap-1"><i class="w-2.5 h-2.5 rounded-xs bg-rose-500 inline-block"></i> Кормление</span>
-              <span class="inline-flex items-center gap-1"><i class="w-2.5 h-2.5 rounded-xs bg-emerald-500 inline-block"></i> Прогулка</span>
+        <div class="space-y-2">
+          <div class="flex items-center justify-between text-[10px] font-mono text-slate-400 pl-16 pr-14">
+            <span>00:00</span>
+            <span>06:00</span>
+            <span>12:00</span>
+            <span>18:00</span>
+            <span>24:00</span>
+          </div>
+          <div class="space-y-1.5">${rowsHtml.join('')}</div>
+          <div class="flex flex-wrap items-center justify-between gap-2 pt-2 text-[11px] text-slate-500 dark:text-slate-400">
+            <div class="flex flex-wrap items-center gap-3">
+              <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-xs bg-indigo-600"></span>Ночной сон</span>
+              <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-xs bg-sky-400"></span>Дневной сон</span>
+              <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-xs bg-rose-500"></span>Кормление</span>
+              <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-xs bg-emerald-500"></span>Прогулка</span>
             </div>
-            <div>Средний сон: <strong class="text-slate-800 dark:text-slate-100">${avgSleep}</strong></div>
+            <div>${avgSleepText}</div>
           </div>
-
-          <div class="flex items-center gap-2 text-[10px] text-slate-400 pl-16 pr-14 justify-between">
-            <span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span>
-          </div>
-
-          <div class="space-y-1.5">${rows.join('')}</div>
         </div>
       `;
     }
@@ -2496,25 +2656,22 @@
     function renderJournalTab() {
       setFeedingSubtype(appState.timers.feeding.subtype || 'left');
       updateTimerDisplays();
-      render24hRhythmAnalytics();
+      renderRhythmAnalytics();
 
-      const todayStr = getTodayIso();
-      const todayLogs = appState.journalLogs.filter(l => {
-        const d = new Date(l.startTime);
-        const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-        return iso === todayStr;
-      });
+      const startOfDay = new Date();
+      startOfDay.setHours(0, 0, 0, 0);
+      const todayLogs = appState.journalLogs.filter(l => (l.startTime || 0) >= startOfDay.getTime());
 
-      const feedsCount = todayLogs.filter(l => l.type === 'feeding').length;
-      const sleepMins = todayLogs.filter(l => l.type === 'sleep').reduce((acc, l) => acc + (l.durationMin || 0), 0);
-      const diapersCount = todayLogs.filter(l => l.type.startsWith('diaper')).length;
+      const feedCount = todayLogs.filter(l => l.type === 'feeding').length;
+      const sleepMin = todayLogs.filter(l => l.type === 'sleep').reduce((acc, l) => acc + (l.durationMin || 0), 0);
+      const diaperCount = todayLogs.filter(l => l.type === 'diaper_wet' || l.type === 'diaper_dirty').length;
 
       const statsEl = document.getElementById('journal-today-stats');
       if (statsEl) {
         statsEl.innerHTML = `
-          <span class="px-2.5 py-1 rounded-lg bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-300 font-bold">Кормлений: ${feedsCount}</span>
-          <span class="px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-300 font-bold">Сон: ${(sleepMins / 60).toFixed(1)} ч</span>
-          <span class="px-2.5 py-1 rounded-lg bg-sky-50 dark:bg-sky-950/60 text-sky-600 dark:text-sky-300 font-bold">Подгузников: ${diapersCount}</span>
+          <span class="px-2.5 py-1 rounded-full bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-300 font-semibold">Кормлений: ${feedCount}</span>
+          <span class="px-2.5 py-1 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-300 font-semibold">Сон: ${(sleepMin / 60).toFixed(1)} ч</span>
+          <span class="px-2.5 py-1 rounded-full bg-sky-50 dark:bg-sky-950/60 text-sky-600 dark:text-sky-300 font-semibold">Подгузников: ${diaperCount}</span>
         `;
       }
 
@@ -2522,41 +2679,129 @@
       if (!listEl) return;
 
       if (appState.journalLogs.length === 0) {
-        listEl.innerHTML = `<p class="py-6 text-center text-xs text-slate-400">Журнал пока пуст. Запустите таймер кормления, сна или нажмите быструю кнопку ухода выше.</p>`;
+        listEl.innerHTML = `<p class="py-6 text-center text-xs text-slate-400">Пока нет записей. Запустите любой таймер или нажмите быструю отметку выше.</p>`;
         return;
       }
 
-      listEl.innerHTML = appState.journalLogs.slice(0, 30).map(l => {
-        const d = new Date(l.startTime);
+      listEl.innerHTML = appState.journalLogs.slice(0, 40).map(l => {
+        const d = new Date(l.startTime || Date.now());
         const timeStr = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
         const dateStr = d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
+
+        let dotColor = 'bg-slate-400';
+        if (l.type === 'feeding') dotColor = 'bg-rose-500';
+        else if (l.type === 'sleep') dotColor = l.sleepType === 'night' ? 'bg-indigo-600' : 'bg-sky-400';
+        else if (l.type === 'walk') dotColor = 'bg-emerald-500';
+        else if (l.type?.startsWith('diaper')) dotColor = 'bg-amber-400';
+
         return `
           <div class="py-2.5 flex items-center justify-between gap-2">
-            <div class="min-w-0">
-              <div class="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100 truncate">${l.label}</div>
-              <div class="text-[11px] text-slate-500 dark:text-slate-400">${dateStr} в ${timeStr} • ${l.detail}</div>
+            <div class="flex items-center gap-2.5 min-w-0">
+              <span class="w-2.5 h-2.5 rounded-full ${dotColor} shrink-0"></span>
+              <div class="min-w-0">
+                <div class="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">${l.label}</div>
+                <div class="text-[11px] text-slate-500 dark:text-slate-400 truncate">${dateStr} в ${timeStr} • ${l.detail}</div>
+              </div>
             </div>
-            <button type="button" onclick="deleteJournalLog('${l.id}')" title="Удалить запись" class="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 transition shrink-0">
-              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
+            <button type="button" onclick="deleteJournalLog('${l.id}')" aria-label="Удалить" class="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 transition shrink-0">
+              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
             </button>
           </div>
         `;
       }).join('');
     }
 
-    // ==================== ЗДОРОВЬЕ: ЗУБНАЯ КАРТА И ПРИВИВКИ ====================
+    // =========================================================================
+    // 8. ЗДОРОВЬЕ: АНАТОМИЧЕСКАЯ ЗУБНАЯ КАРТА И ПРИВИВКИ / ОСМОТРЫ
+    // =========================================================================
+    function renderHealthTab() {
+      renderTeethChart();
+      renderVaccinesList();
+    }
+
+    function renderTeethChart() {
+      const container = document.getElementById('teeth-chart-container');
+      const badge = document.getElementById('teeth-progress-badge');
+      const forecastBox = document.getElementById('teeth-forecast-box');
+      if (!container) return;
+
+      const teethMap = appState.teeth || {};
+      const eruptedCount = PRIMARY_TEETH.filter(t => teethMap[t.id]?.erupted).length;
+      if (badge) badge.textContent = `${eruptedCount} из 20 зубов`;
+
+      const teethSvgItems = PRIMARY_TEETH.map(t => {
+        const rec = teethMap[t.id];
+        const isErupted = Boolean(rec && rec.erupted);
+        const hasSymptoms = Boolean(rec && Array.isArray(rec.symptoms) && rec.symptoms.length > 0);
+        const rx = t.kind === 'molar' ? 14.5 : t.kind === 'canine' ? 11.5 : 12;
+        const ry = t.kind === 'molar' ? 13 : t.kind === 'canine' ? 12.5 : 11;
+
+        const fill = isErupted ? '#10B981' : '#FFFFFF';
+        const stroke = isErupted ? '#059669' : '#CBD5E1';
+        const textFill = isErupted ? '#FFFFFF' : '#475569';
+
+        return `
+          <g onclick="openToothModal('${t.id}')" class="cursor-pointer group">
+            <ellipse cx="${t.x}" cy="${t.y}" rx="${rx}" ry="${ry}" fill="${fill}" stroke="${stroke}" stroke-width="2" />
+            <text x="${t.x}" y="${t.y + 3.5}" text-anchor="middle" font-size="9.5" font-weight="700" fill="${textFill}">${t.id}</text>
+            ${hasSymptoms ? `<circle cx="${t.x + rx - 2}" cy="${t.y - ry + 2}" r="3.5" fill="#F43F5E" />` : ''}
+          </g>
+        `;
+      }).join('');
+
+      container.innerHTML = `
+        <div class="w-full max-w-sm mx-auto">
+          <svg viewBox="0 0 360 326" class="w-full h-auto select-none">
+            <!-- Контур верхней челюсти -->
+            <path d="M 42 146 C 42 22, 318 22, 318 146" fill="none" stroke="#FDA4AF" stroke-width="34" stroke-linecap="round" opacity="0.28" />
+            <!-- Контур нижней челюсти -->
+            <path d="M 42 180 C 42 304, 318 304, 318 180" fill="none" stroke="#FDA4AF" stroke-width="34" stroke-linecap="round" opacity="0.28" />
+            <!-- Разделитель челюстей -->
+            <line x1="40" y1="163" x2="320" y2="163" stroke="#E2E8F0" stroke-dasharray="4 4" stroke-width="1.2" />
+            <text x="180" y="106" text-anchor="middle" font-size="11" font-weight="700" fill="#94A3B8">ВЕРХНЯЯ ЧЕЛЮСТЬ</text>
+            <text x="180" y="232" text-anchor="middle" font-size="11" font-weight="700" fill="#94A3B8">НИЖНЯЯ ЧЕЛЮСТЬ</text>
+            <text x="32" y="167" text-anchor="middle" font-size="9" font-weight="700" fill="#94A3B8">П</text>
+            <text x="328" y="167" text-anchor="middle" font-size="9" font-weight="700" fill="#94A3B8">Л</text>
+            ${teethSvgItems}
+          </svg>
+        </div>
+        <div class="flex flex-wrap items-center justify-center gap-4 text-[11px] text-slate-500 dark:text-slate-400">
+          <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-white border-2 border-slate-300"></span>Ожидается</span>
+          <span class="inline-flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-emerald-500"></span>Прорезался</span>
+          <span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span>Отмечены симптомы</span>
+        </div>
+      `;
+
+      if (forecastBox) {
+        const nextOrder = ['81', '71', '51', '61', '52', '62', '82', '72', '54', '64', '84', '74', '53', '63', '83', '73', '85', '75', '55', '65'];
+        const nextMissingId = nextOrder.find(id => !teethMap[id]?.erupted);
+        const nextTooth = PRIMARY_TEETH.find(t => t.id === nextMissingId);
+
+        if (nextTooth) {
+          forecastBox.innerHTML = `
+            <div class="space-y-1">
+              <div><strong>Следующий по порядку прорезывания:</strong> ${nextTooth.name} (№ ${nextTooth.id}) — обычно появляется в <strong>${nextTooth.norm}</strong>.</div>
+              <div>${eruptedCount > 0 ? 'Напоминание: чистите прорезавшиеся зубки 2 раза в день мягкой детской щёткой и пастой со фторидом 1000 ppm (размером с рисовое зёрнышко).' : 'Как только появится первый зубик, начинайте регулярную чистку мягкой щёткой.'}</div>
+            </div>
+          `;
+        } else {
+          forecastBox.innerHTML = `<strong>Все 20 молочных зубов прорезались!</strong> Продолжайте чистить зубы утром и вечером и посещайте детского стоматолога каждые 6 месяцев.`;
+        }
+      }
+    }
+
     function openToothModal(toothId) {
       const tooth = PRIMARY_TEETH.find(t => t.id === toothId);
       if (!tooth) return;
-      const saved = appState.teeth[toothId] || { erupted: false, date: getTodayIso(), symptoms: [] };
+      const rec = (appState.teeth || {})[toothId] || {};
 
       document.getElementById('tooth-id-input').value = toothId;
-      document.getElementById('modal-tooth-title').textContent = tooth.name;
+      document.getElementById('modal-tooth-title').textContent = `${tooth.name} (№ ${tooth.id})`;
       document.getElementById('modal-tooth-norm').textContent = `Ориентировочный срок появления: ${tooth.norm}`;
-      document.getElementById('tooth-erupted-checkbox').checked = Boolean(saved.erupted);
-      document.getElementById('tooth-date-input').value = saved.date || getTodayIso();
-      tempToothSymptoms = Array.isArray(saved.symptoms) ? [...saved.symptoms] : [];
+      document.getElementById('tooth-erupted-checkbox').checked = Boolean(rec.erupted);
+      document.getElementById('tooth-date-input').value = rec.date || getTodayIso();
 
+      tempToothSymptoms = Array.isArray(rec.symptoms) ? [...rec.symptoms] : [];
       renderToothSymptomChips();
       openModal('modal-tooth');
     }
@@ -2571,17 +2816,17 @@
     }
 
     function renderToothSymptomChips() {
-      const wrap = document.getElementById('tooth-symptoms-chips');
-      if (!wrap) return;
-      wrap.innerHTML = TOOTH_SYMPTOM_OPTIONS.map(sym => {
+      const grid = document.getElementById('tooth-symptoms-grid');
+      if (!grid) return;
+      grid.innerHTML = TOOTH_SYMPTOM_OPTIONS.map(sym => {
         const active = tempToothSymptoms.includes(sym);
         return `
-          <button type="button" onclick="toggleTempToothSymptom('${sym}')" class="px-2.5 py-1.5 rounded-xl text-[11px] font-bold border transition ${
+          <button type="button" onclick="toggleTempToothSymptom('${sym}')" class="px-2.5 py-2 rounded-xl text-[11px] font-semibold border text-left transition ${
             active
-              ? 'bg-rose-500 text-white border-rose-500'
-              : 'bg-warmgray dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-stone-200 dark:border-slate-700'
+              ? 'bg-rose-50 dark:bg-rose-950/60 border-rose-400 text-rose-700 dark:text-rose-300'
+              : 'bg-warmgray/60 dark:bg-slate-800 border-stone-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
           }">
-            ${sym}
+            ${active ? '✓ ' : ''}${sym}
           </button>
         `;
       }).join('');
@@ -2591,18 +2836,18 @@
       event.preventDefault();
       const id = document.getElementById('tooth-id-input').value;
       const erupted = document.getElementById('tooth-erupted-checkbox').checked;
-      const date = document.getElementById('tooth-date-input').value;
+      const date = document.getElementById('tooth-date-input').value || getTodayIso();
 
       appState.teeth[id] = {
         erupted,
-        date,
+        date: erupted ? date : '',
         symptoms: [...tempToothSymptoms]
       };
 
       closeModal('modal-tooth');
-      renderHealthTab();
+      renderTeethChart();
       saveState();
-      showToast(erupted ? 'Появление зуба отмечено!' : 'Данные зуба обновлены');
+      showToast('Данные зубной карты сохранены');
     }
 
     function setVaccineFilter(f) {
@@ -2613,22 +2858,81 @@
           ? 'vac-filter-btn px-2.5 py-1 rounded-lg text-xs font-bold bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-2xs'
           : 'vac-filter-btn px-2.5 py-1 rounded-lg text-xs font-bold text-slate-500 dark:text-slate-400';
       });
-      renderHealthTab();
+      renderVaccinesList();
+    }
+
+    function renderVaccinesList() {
+      const container = document.getElementById('vaccines-list-container');
+      if (!container) return;
+
+      const dob = appState.profile.dob ? new Date(appState.profile.dob + 'T00:00:00') : new Date();
+      const vacMap = appState.vaccines || {};
+
+      const filtered = VACCINE_SCHEDULE.filter(item => {
+        const isDone = Boolean(vacMap[item.id]?.done);
+        if (vaccineFilter === 'done') return isDone;
+        if (vaccineFilter === 'pending') return !isDone;
+        return true;
+      });
+
+      if (filtered.length === 0) {
+        container.innerHTML = `<p class="py-4 text-center text-xs text-slate-400">Нет пунктов в выбранном фильтре.</p>`;
+        return;
+      }
+
+      container.innerHTML = filtered.map(item => {
+        const rec = vacMap[item.id] || {};
+        const plannedDate = new Date(dob.getTime() + item.daysOffset * 86400000);
+        const plannedStr = plannedDate.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+        const isDone = Boolean(rec.done);
+
+        return `
+          <div onclick="openVaccineModal('${item.id}')" class="p-3.5 rounded-2xl border transition cursor-pointer flex items-start justify-between gap-3 ${
+            isDone
+              ? 'bg-emerald-50/50 dark:bg-emerald-950/25 border-emerald-200/80 dark:border-emerald-900/50'
+              : 'bg-warmgray/60 dark:bg-slate-800/60 border-stone-200/70 dark:border-slate-700 hover:border-rose-300'
+          }">
+            <div class="space-y-1 min-w-0">
+              <div class="flex flex-wrap items-center gap-1.5">
+                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                  item.type === 'vaccine'
+                    ? 'bg-rose-100 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300'
+                    : 'bg-sky-100 dark:bg-sky-950/70 text-sky-700 dark:text-sky-300'
+                }">
+                  ${item.type === 'vaccine' ? 'Прививка' : 'Осмотр'} • ${item.ageLabel}
+                </span>
+                <span class="text-[11px] text-slate-500">План: ${plannedStr}</span>
+              </div>
+              <div class="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100">${item.title}</div>
+              ${isDone && (rec.date || rec.drug || rec.note)
+                ? `<div class="text-[11px] text-emerald-700 dark:text-emerald-300">Выполнено${rec.date ? ': ' + rec.date : ''}${rec.drug ? ' • ' + rec.drug : ''}${rec.series ? ' (сер. ' + rec.series + ')' : ''}</div>`
+                : ''}
+            </div>
+            <span class="px-2.5 py-1 rounded-xl text-[11px] font-bold shrink-0 ${
+              isDone
+                ? 'bg-emerald-500 text-white'
+                : 'bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-200 border border-stone-200 dark:border-slate-600'
+            }">
+              ${isDone ? '✓ Готово' : 'Отметить'}
+            </span>
+          </div>
+        `;
+      }).join('');
     }
 
     function openVaccineModal(vacId) {
       const item = VACCINE_SCHEDULE.find(v => v.id === vacId);
       if (!item) return;
-      const saved = appState.vaccines[vacId] || { done: false, date: getTodayIso(), drug: '', series: '', note: '' };
+      const rec = (appState.vaccines || {})[vacId] || {};
 
       document.getElementById('vac-id-input').value = vacId;
       document.getElementById('modal-vac-title').textContent = item.title;
       document.getElementById('modal-vac-age').textContent = `Рекомендуемый возраст: ${item.ageLabel}`;
-      document.getElementById('vac-done-checkbox').checked = Boolean(saved.done);
-      document.getElementById('vac-date-input').value = saved.date || getTodayIso();
-      document.getElementById('vac-drug-input').value = saved.drug || '';
-      document.getElementById('vac-series-input').value = saved.series || '';
-      document.getElementById('vac-note-input').value = saved.note || '';
+      document.getElementById('vac-done-checkbox').checked = Boolean(rec.done);
+      document.getElementById('vac-date-input').value = rec.date || getTodayIso();
+      document.getElementById('vac-series-input').value = rec.series || '';
+      document.getElementById('vac-drug-input').value = rec.drug || '';
+      document.getElementById('vac-note-input').value = rec.note || '';
 
       openModal('modal-vaccine');
     }
@@ -2638,170 +2942,42 @@
       const id = document.getElementById('vac-id-input').value;
       appState.vaccines[id] = {
         done: document.getElementById('vac-done-checkbox').checked,
-        date: document.getElementById('vac-date-input').value,
-        drug: document.getElementById('vac-drug-input').value.trim(),
-        series: document.getElementById('vac-series-input').value.trim(),
-        note: document.getElementById('vac-note-input').value.trim()
+        date: document.getElementById('vac-date-input').value || '',
+        series: (document.getElementById('vac-series-input').value || '').trim(),
+        drug: (document.getElementById('vac-drug-input').value || '').trim(),
+        note: (document.getElementById('vac-note-input').value || '').trim()
       };
       closeModal('modal-vaccine');
-      renderHealthTab();
+      renderVaccinesList();
       saveState();
-      showToast('Карточка прививки/осмотра сохранена');
+      showToast('Запись календаря здоровья сохранена');
     }
 
-    function renderHealthTab() {
-      // 1. Анатомическая зубная карта (верхняя и нижняя дуги челюстей)
-      const eruptedCount = PRIMARY_TEETH.filter(t => appState.teeth[t.id]?.erupted).length;
-
-      const badge = document.getElementById('teeth-progress-badge');
-      if (badge) badge.textContent = `${eruptedCount} из 20 зубов`;
-
-      const teethWrap = document.getElementById('teeth-chart-container');
-      if (teethWrap) {
-        const teethSvgItems = PRIMARY_TEETH.map(t => {
-          const info = appState.teeth[t.id];
-          const isErupted = Boolean(info?.erupted);
-          const hasSymptoms = Array.isArray(info?.symptoms) && info.symptoms.length > 0;
-
-          // Размеры коронки в зависимости от типа зуба (моляр / клык / резец)
-          const rx = t.kind === 'molar' ? 16 : t.kind === 'canine' ? 13.5 : 14;
-          const ry = t.kind === 'molar' ? 15.5 : t.kind === 'canine' ? 14.5 : 13.5;
-
-          const shapeClasses = isErupted
-            ? 'fill-emerald-500 stroke-emerald-600 dark:fill-emerald-500 dark:stroke-emerald-400'
-            : 'fill-white dark:fill-slate-800 stroke-rose-200 dark:stroke-slate-600 group-hover:stroke-rose-400';
-
-          const textClasses = isErupted
-            ? 'fill-white'
-            : 'fill-slate-700 dark:fill-slate-200';
-
-          const glossArc = t.jaw === 'upper'
-            ? `<path d="M ${t.x - rx * 0.45} ${t.y - ry * 0.42} Q ${t.x} ${t.y - ry * 0.65} ${t.x + rx * 0.45} ${t.y - ry * 0.42}" fill="none" stroke="${isErupted ? '#FFFFFF' : '#FDA4AF'}" stroke-opacity="${isErupted ? '0.45' : '0.5'}" stroke-width="1.6" stroke-linecap="round" />`
-            : `<path d="M ${t.x - rx * 0.45} ${t.y + ry * 0.42} Q ${t.x} ${t.y + ry * 0.65} ${t.x + rx * 0.45} ${t.y + ry * 0.42}" fill="none" stroke="${isErupted ? '#FFFFFF' : '#FDA4AF'}" stroke-opacity="${isErupted ? '0.45' : '0.5'}" stroke-width="1.6" stroke-linecap="round" />`;
-
-          const symptomDot = hasSymptoms
-            ? `<circle cx="${t.x + rx * 0.72}" cy="${t.y - ry * 0.72}" r="4.2" class="fill-amber-400 stroke-white dark:stroke-slate-900" stroke-width="1.4" />`
-            : '';
-
-          return `
-            <g onclick="openToothModal('${t.id}')" class="cursor-pointer group">
-              <title>${t.name} (${t.norm})</title>
-              <rect x="${t.x - rx}" y="${t.y - ry}" width="${rx * 2}" height="${ry * 2}" rx="${t.kind === 'molar' ? 8 : 11}" class="${shapeClasses} transition-colors" stroke-width="1.8" />
-              ${glossArc}
-              <text x="${t.x}" y="${t.y + 3.6}" text-anchor="middle" font-size="10.5" font-weight="700" class="${textClasses} select-none">${t.id}</text>
-              ${symptomDot}
-            </g>
-          `;
-        }).join('');
-
-        teethWrap.innerHTML = `
-          <div class="rounded-3xl bg-gradient-to-b from-rose-50/75 via-warmgray/45 to-rose-50/75 dark:from-rose-950/25 dark:via-slate-800/40 dark:to-rose-950/25 border border-rose-100/80 dark:border-slate-800 p-3 sm:p-4">
-            <svg viewBox="0 0 360 326" class="w-full max-w-[390px] mx-auto h-auto overflow-visible">
-              <!-- Мягкий контур верхней и нижней десны -->
-              <path d="M 52 142 C 52 24, 308 24, 308 142" fill="none" class="stroke-rose-200/75 dark:stroke-rose-900/45" stroke-width="34" stroke-linecap="round" />
-              <path d="M 52 184 C 52 302, 308 302, 308 184" fill="none" class="stroke-rose-200/75 dark:stroke-rose-900/45" stroke-width="34" stroke-linecap="round" />
-
-              <!-- Центральная ось и подписи челюстей -->
-              <line x1="180" y1="22" x2="180" y2="304" class="stroke-rose-300/60 dark:stroke-slate-700" stroke-width="1.2" stroke-dasharray="3 3" />
-              <text x="180" y="114" text-anchor="middle" font-size="10" font-weight="700" class="fill-rose-400/90 dark:fill-rose-300/70 uppercase tracking-wider select-none">Верхняя челюсть</text>
-              <text x="34" y="166" text-anchor="start" font-size="9.5" font-weight="600" class="fill-slate-400 select-none">Правая</text>
-              <text x="326" y="166" text-anchor="end" font-size="9.5" font-weight="600" class="fill-slate-400 select-none">Левая</text>
-              <text x="180" y="220" text-anchor="middle" font-size="10" font-weight="700" class="fill-rose-400/90 dark:fill-rose-300/70 uppercase tracking-wider select-none">Нижняя челюсть</text>
-
-              <!-- 20 молочных зубов -->
-              ${teethSvgItems}
-            </svg>
-
-            <div class="flex flex-wrap items-center justify-center gap-4 pt-2 text-[11px] text-slate-500 dark:text-slate-400">
-              <span class="inline-flex items-center gap-1.5"><i class="w-3 h-3 rounded-full bg-white dark:bg-slate-800 border border-rose-300 inline-block"></i> Ожидается</span>
-              <span class="inline-flex items-center gap-1.5"><i class="w-3 h-3 rounded-full bg-emerald-500 inline-block"></i> Прорезался</span>
-              <span class="inline-flex items-center gap-1.5"><i class="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block"></i> Были симптомы</span>
-            </div>
-          </div>
-        `;
-      }
-
-      const forecastBox = document.getElementById('teeth-forecast-box');
-      if (forecastBox) {
-        const nextTeeth = PRIMARY_TEETH.filter(t => !appState.teeth[t.id]?.erupted).slice(0, 2);
-        const nextText = nextTeeth.length > 0
-          ? `Следующие по графику: <strong>${nextTeeth.map(t => `${t.name} (${t.norm})`).join(', ')}</strong>.`
-          : 'Все 20 молочных зубов уже отмечены!';
-        const brushTip = eruptedCount > 0
-          ? ' Напоминание: чистите появившиеся зубки мягкой щёткой 2 раза в день с пастой по возрасту (0–3 года).'
-          : ' Первыми обычно появляются нижние центральные резцы (81 и 71) в 6–10 месяцев.';
-        forecastBox.innerHTML = nextText + brushTip;
-      }
-
-      // 2. Календарь прививок и осмотров
-      const dob = new Date((appState.profile.dob || getTodayIso()) + 'T00:00:00');
-      const nowMs = Date.now();
-      const vacWrap = document.getElementById('vaccines-list-container');
-      if (!vacWrap) return;
-
-      const filtered = VACCINE_SCHEDULE.filter(v => {
-        const done = Boolean(appState.vaccines[v.id]?.done);
-        if (vaccineFilter === 'done') return done;
-        if (vaccineFilter === 'pending') return !done;
-        return true;
-      });
-
-      vacWrap.innerHTML = filtered.map(v => {
-        const saved = appState.vaccines[v.id] || {};
-        const dueDate = new Date(dob.getTime() + v.daysOffset * 86400000);
-        const dueStr = dueDate.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
-        const isDueSoon = !saved.done && dueDate.getTime() <= nowMs + 14 * 86400000;
-
-        return `
-          <div onclick="openVaccineModal('${v.id}')" class="p-3.5 rounded-2xl border cursor-pointer transition flex items-start justify-between gap-3 ${
-            saved.done
-              ? 'bg-emerald-50/50 dark:bg-emerald-950/25 border-emerald-200/80 dark:border-emerald-900/60'
-              : isDueSoon
-                ? 'bg-amber-50/60 dark:bg-amber-950/25 border-amber-200 dark:border-amber-900/60'
-                : 'bg-warmgray/50 dark:bg-slate-800/60 border-stone-200/70 dark:border-slate-700 hover:border-rose-300'
-          }">
-            <div class="space-y-1 min-w-0">
-              <div class="flex flex-wrap items-center gap-1.5">
-                <span class="text-[11px] font-bold px-2 py-0.5 rounded-md bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-stone-200/70 dark:border-slate-700">${v.ageLabel}</span>
-                <span class="text-[11px] text-slate-400">План: ${dueStr}</span>
-                ${saved.done ? `<span class="text-[11px] font-bold text-emerald-600 dark:text-emerald-400">• Выполнено ${saved.date || ''}</span>` : isDueSoon ? '<span class="text-[11px] font-bold text-amber-600 dark:text-amber-400">• Пора запланировать</span>' : ''}
-              </div>
-              <div class="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100">${v.title}</div>
-              ${saved.drug || saved.note ? `<div class="text-[11px] text-slate-500 dark:text-slate-400">${[saved.drug, saved.series ? 'серия ' + saved.series : '', saved.note].filter(Boolean).join(' • ')}</div>` : ''}
-            </div>
-            <span class="px-2.5 py-1 rounded-xl text-[11px] font-bold shrink-0 ${
-              saved.done ? 'bg-emerald-500 text-white' : 'bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-200 border border-stone-200 dark:border-slate-600'
-            }">
-              ${saved.done ? 'Готово' : 'Отметить'}
-            </span>
-          </div>
-        `;
-      }).join('');
-    }
-
-    // ==================== РОСТ И ВЕС (ГРАФИК ВОЗ) ====================
-    function setGrowthMetric(m) {
-      appState.growthMetric = m;
+    // =========================================================================
+    // 9. РОСТ И ВЕС (НОРМЫ ВОЗ 0–60 МЕСЯЦЕВ)
+    // =========================================================================
+    function setGrowthMetric(metric) {
+      appState.growthMetric = metric;
       renderGrowthTab();
       saveState();
     }
 
     function addGrowthRecord(event) {
       event.preventDefault();
-      const date = document.getElementById('growth-date-input').value;
-      const weight = parseFloat(document.getElementById('growth-weight-input').value);
-      const height = parseFloat(document.getElementById('growth-height-input').value);
+      const date = document.getElementById('growth-date-input').value || getTodayIso();
+      const weightVal = parseFloat(document.getElementById('growth-weight-input').value);
+      const heightVal = parseFloat(document.getElementById('growth-height-input').value);
 
-      if (!date || (isNaN(weight) && isNaN(height))) {
-        showToast('Укажите дату и хотя бы один показатель (вес или рост)');
+      if (isNaN(weightVal) && isNaN(heightVal)) {
+        showToast('Укажите вес или рост ребёнка');
         return;
       }
 
       appState.growthRecords.push({
         id: 'gr_' + Date.now(),
         date,
-        weight: isNaN(weight) ? null : weight,
-        height: isNaN(height) ? null : height
+        weight: isNaN(weightVal) ? null : weightVal,
+        height: isNaN(heightVal) ? null : heightVal
       });
       appState.growthRecords.sort((a, b) => a.date.localeCompare(b.date));
 
@@ -2809,7 +2985,7 @@
       document.getElementById('growth-height-input').value = '';
       renderGrowthTab();
       saveState();
-      showToast('Замер добавлен на график ВОЗ');
+      showToast('Замер сохранён на графике ВОЗ');
     }
 
     function deleteGrowthRecord(id) {
@@ -2819,120 +2995,137 @@
     }
 
     function renderGrowthTab() {
-      const dateInp = document.getElementById('growth-date-input');
-      if (dateInp && !dateInp.value) dateInp.value = getTodayIso();
-
       const metric = appState.growthMetric || 'weight';
-      const wBtn = document.getElementById('growth-metric-weight');
-      const hBtn = document.getElementById('growth-metric-height');
-      if (wBtn && hBtn) {
-        wBtn.className = metric === 'weight'
+      const btnW = document.getElementById('growth-metric-weight');
+      const btnH = document.getElementById('growth-metric-height');
+      if (btnW && btnH) {
+        btnW.className = metric === 'weight'
           ? 'px-3 py-1 rounded-lg text-xs font-bold bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-2xs'
           : 'px-3 py-1 rounded-lg text-xs font-bold text-slate-500 dark:text-slate-400';
-        hBtn.className = metric === 'height'
+        btnH.className = metric === 'height'
           ? 'px-3 py-1 rounded-lg text-xs font-bold bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-2xs'
           : 'px-3 py-1 rounded-lg text-xs font-bold text-slate-500 dark:text-slate-400';
       }
 
-      const isBoy = appState.profile.gender === 'boy';
-      const key = metric === 'weight' ? (isBoy ? 'wB' : 'wG') : (isBoy ? 'hB' : 'hG');
-      const minVal = metric === 'weight' ? 2 : 45;
-      const maxVal = metric === 'weight' ? 23 : 118;
-
-      const W = 620, H = 220, padL = 36, padR = 16, padT = 16, padB = 28;
-      const plotW = W - padL - padR;
-      const plotH = H - padT - padB;
-      const toX = (m) => padL + (m / 60) * plotW;
-      const toY = (v) => padT + plotH - ((v - minVal) / (maxVal - minVal)) * plotH;
-
-      const upperPts = WHO_STANDARDS.map(s => `${toX(s.m).toFixed(1)},${toY(s[key][2]).toFixed(1)}`);
-      const lowerPts = [...WHO_STANDARDS].reverse().map(s => `${toX(s.m).toFixed(1)},${toY(s[key][0]).toFixed(1)}`);
-      const medPts = WHO_STANDARDS.map(s => `${toX(s.m).toFixed(1)},${toY(s[key][1]).toFixed(1)}`).join(' ');
-      const polyPts = [...upperPts, ...lowerPts].join(' ');
-
-      const dobMs = new Date((appState.profile.dob || getTodayIso()) + 'T00:00:00').getTime();
-      const userPts = appState.growthRecords
-        .filter(r => r[metric] !== null && r[metric] !== undefined)
-        .map(r => {
-          const m = Math.max(0, Math.min(60, (new Date(r.date + 'T00:00:00').getTime() - dobMs) / (86400000 * 30.4375)));
-          return { x: toX(m), y: toY(r[metric]), val: r[metric], date: r.date };
-        });
-
-      const userLine = userPts.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
-      const userDots = userPts.map(p => `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4" fill="#F43F5E" stroke="#FFFFFF" stroke-width="1.5"><title>${p.date}: ${p.val}</title></circle>`).join('');
-
-      const xTicks = [0, 6, 12, 24, 36, 48, 60].map(m => `
-        <text x="${toX(m)}" y="${H - 8}" text-anchor="middle" font-size="10" fill="#94A3B8">${m === 0 ? '0' : m % 12 === 0 ? (m / 12) + ' г' : m + ' м'}</text>
-      `).join('');
+      const dateInput = document.getElementById('growth-date-input');
+      if (dateInput && !dateInput.value) dateInput.value = getTodayIso();
 
       const chartWrap = document.getElementById('who-chart-wrapper');
       if (chartWrap) {
+        const gender = appState.profile.gender || 'girl';
+        const key = metric === 'weight' ? (gender === 'boy' ? 'wB' : 'wG') : (gender === 'boy' ? 'hB' : 'hG');
+        const minY = metric === 'weight' ? 2 : 45;
+        const maxY = metric === 'weight' ? 23 : 120;
+        const W = 560;
+        const H = 220;
+        const padL = 36;
+        const padR = 16;
+        const padT = 16;
+        const padB = 28;
+        const plotW = W - padL - padR;
+        const plotH = H - padT - padB;
+
+        const toX = (m) => padL + (Math.max(0, Math.min(60, m)) / 60) * plotW;
+        const toY = (v) => padT + plotH - ((Math.max(minY, Math.min(maxY, v)) - minY) / (maxY - minY)) * plotH;
+
+        const upperPts = WHO_STANDARDS.map(s => `${toX(s.m).toFixed(1)},${toY(s[key][2]).toFixed(1)}`);
+        const lowerPts = [...WHO_STANDARDS].reverse().map(s => `${toX(s.m).toFixed(1)},${toY(s[key][0]).toFixed(1)}`);
+        const medianPts = WHO_STANDARDS.map(s => `${toX(s.m).toFixed(1)},${toY(s[key][1]).toFixed(1)}`).join(' ');
+
+        const dobMs = new Date((appState.profile.dob || getTodayIso()) + 'T00:00:00').getTime();
+        const userPoints = (appState.growthRecords || [])
+          .filter(r => metric === 'weight' ? r.weight != null : r.height != null)
+          .map(r => {
+            const m = Math.max(0, Math.min(60, (new Date(r.date + 'T00:00:00').getTime() - dobMs) / (86400000 * 30.4375)));
+            const val = metric === 'weight' ? r.weight : r.height;
+            return { x: toX(m), y: toY(val), val, date: r.date };
+          });
+
+        const userPolyline = userPoints.length > 1
+          ? `<polyline fill="none" stroke="#F43F5E" stroke-width="2.5" points="${userPoints.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')}" />`
+          : '';
+        const userCircles = userPoints.map(p => `
+          <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4.5" fill="#F43F5E" stroke="#FFFFFF" stroke-width="1.5">
+            <title>${p.date}: ${p.val} ${metric === 'weight' ? 'кг' : 'см'}</title>
+          </circle>
+        `).join('');
+
+        const xTicks = [0, 12, 24, 36, 48, 60].map(m => `
+          <text x="${toX(m).toFixed(1)}" y="${H - 8}" text-anchor="middle" font-size="10" fill="#94A3B8">${m === 0 ? '0' : (m / 12) + ' г.'}</text>
+        `).join('');
+
         chartWrap.innerHTML = `
-          <svg viewBox="0 0 ${W} ${H}" class="w-full min-w-[460px] h-auto select-none">
-            <polygon points="${polyPts}" fill="#F43F5E" fill-opacity="0.12" />
-            <polyline points="${medPts}" fill="none" stroke="#F43F5E" stroke-opacity="0.45" stroke-dasharray="4 4" stroke-width="1.5" />
-            ${userPts.length > 1 ? `<polyline points="${userLine}" fill="none" stroke="#F43F5E" stroke-width="2.5" />` : ''}
-            ${userDots}
+          <svg viewBox="0 0 ${W} ${H}" class="w-full min-w-[340px] h-auto">
+            <polygon points="${[...upperPts, ...lowerPts].join(' ')}" fill="#10B981" fill-opacity="0.16" />
+            <polyline fill="none" stroke="#10B981" stroke-width="1.5" stroke-dasharray="4 3" points="${medianPts}" />
+            ${userPolyline}
+            ${userCircles}
+            <line x1="${padL}" y1="${padT + plotH}" x2="${W - padR}" y2="${padT + plotH}" stroke="#CBD5E1" />
+            <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT + plotH}" stroke="#CBD5E1" />
+            <text x="${padL - 6}" y="${padT + 8}" text-anchor="end" font-size="10" fill="#94A3B8">${maxY}</text>
+            <text x="${padL - 6}" y="${padT + plotH}" text-anchor="end" font-size="10" fill="#94A3B8">${minY}</text>
             ${xTicks}
-            <text x="8" y="${padT + 8}" font-size="10" fill="#94A3B8">${maxVal}</text>
-            <text x="8" y="${padT + plotH}" font-size="10" fill="#94A3B8">${minVal}</text>
           </svg>
         `;
       }
 
       const listEl = document.getElementById('growth-records-list');
       if (!listEl) return;
-      if (appState.growthRecords.length === 0) {
-        listEl.innerHTML = `<p class="py-5 text-center text-xs text-slate-400">Замеров пока нет. Внесите первый вес и рост малыша выше, чтобы увидеть точку на кривой ВОЗ.</p>`;
+      const sortedDesc = [...(appState.growthRecords || [])].reverse();
+      if (sortedDesc.length === 0) {
+        listEl.innerHTML = `<p class="py-4 text-center text-xs text-slate-400">Добавьте первый замер веса или роста, чтобы увидеть точку на кривой ВОЗ.</p>`;
         return;
       }
 
-      listEl.innerHTML = [...appState.growthRecords].reverse().map(r => `
+      listEl.innerHTML = sortedDesc.map(r => `
         <div class="py-2.5 flex items-center justify-between text-xs">
-          <div class="font-semibold text-slate-800 dark:text-slate-100">
-            ${r.date} — ${r.weight !== null ? `Вес: <strong>${r.weight} кг</strong>` : ''} ${r.height !== null ? `• Рост: <strong>${r.height} см</strong>` : ''}
+          <div>
+            <span class="font-bold text-slate-800 dark:text-slate-100">${r.date}</span>
+            <span class="text-slate-500 ml-2">${r.weight != null ? r.weight + ' кг' : ''}${r.weight != null && r.height != null ? ' • ' : ''}${r.height != null ? r.height + ' см' : ''}</span>
           </div>
-          <button type="button" onclick="deleteGrowthRecord('${r.id}')" class="text-slate-400 hover:text-rose-500 p-1">
-            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
+          <button type="button" onclick="deleteGrowthRecord('${r.id}')" class="p-1 text-slate-400 hover:text-rose-500">
+            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
           </button>
         </div>
       `).join('');
     }
 
-    // ==================== СОВЕТЫ SOS ====================
+    // =========================================================================
+    // 10. СОВЕТЫ SOS И ДНЕВНИК
+    // =========================================================================
     function renderSymptoms() {
-      const q = (document.getElementById('sos-search-input')?.value || '').trim().toLowerCase();
       const grid = document.getElementById('symptoms-grid');
       if (!grid) return;
+      const q = (document.getElementById('sos-search-input')?.value || '').trim().toLowerCase();
 
-      const list = SYMPTOMS_DATA.filter(s =>
-        !q || s.title.toLowerCase().includes(q) || s.summary.toLowerCase().includes(q) || s.steps.some(st => st.toLowerCase().includes(q))
-      );
+      const items = SYMPTOMS_DATA.filter(s => {
+        if (!q) return true;
+        return s.title.toLowerCase().includes(q) || s.summary.toLowerCase().includes(q) || s.steps.some(st => st.toLowerCase().includes(q));
+      });
 
-      grid.innerHTML = list.map(s => `
-        <div class="bg-white dark:bg-slate-900 rounded-3xl border border-stone-200/70 dark:border-slate-800 p-4 sm:p-5 space-y-3 shadow-2xs">
+      grid.innerHTML = items.map(s => `
+        <article class="bg-white dark:bg-slate-900 rounded-3xl border border-stone-200/70 dark:border-slate-800 p-4 sm:p-5 space-y-3 shadow-2xs">
           <div class="flex items-start justify-between gap-2">
             <h3 class="font-display font-extrabold text-sm sm:text-base text-slate-900 dark:text-slate-100">${s.title}</h3>
-            <span class="px-2.5 py-0.5 rounded-full bg-warmgray dark:bg-slate-800 text-[11px] font-bold text-slate-500 shrink-0">${s.age}</span>
+            <span class="px-2 py-0.5 rounded-full bg-warmgray dark:bg-slate-800 text-[10px] font-bold text-slate-500 shrink-0">${s.age}</span>
           </div>
           <p class="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">${s.summary}</p>
           <ul class="space-y-1.5 text-xs text-slate-700 dark:text-slate-200">
-            ${s.steps.map(st => `<li class="flex items-start gap-2"><span class="text-rose-500 font-bold">•</span><span>${st}</span></li>`).join('')}
+            ${s.steps.map(st => `<li class="flex items-start gap-2"><span class="text-emerald-500 font-bold">•</span><span>${st}</span></li>`).join('')}
           </ul>
-          <div class="p-3 rounded-2xl bg-rose-50/80 dark:bg-rose-950/40 border border-rose-200/70 dark:border-rose-900/60 text-[11px] text-rose-800 dark:text-rose-200">
-            <strong>Когда нужен врач:</strong> ${s.redFlags}
+          <div class="p-2.5 rounded-2xl bg-rose-50/80 dark:bg-rose-950/40 border border-rose-200/70 dark:border-rose-900/50 text-[11px] text-rose-700 dark:text-rose-300">
+            <strong>Когда обратиться к врачу:</strong> ${s.redFlags}
           </div>
-        </div>
+        </article>
       `).join('');
     }
 
-    // ==================== ДНЕВНИК ====================
     function addDiaryEntry(event) {
       event.preventDefault();
       const date = document.getElementById('diary-date-input').value || getTodayIso();
-      const tag = document.getElementById('diary-tag-input').value;
-      const title = document.getElementById('diary-title-input').value.trim();
-      const text = document.getElementById('diary-text-input').value.trim();
+      const tag = document.getElementById('diary-tag-input').value || 'Достижение';
+      const title = (document.getElementById('diary-title-input').value || '').trim();
+      const text = (document.getElementById('diary-text-input').value || '').trim();
       if (!title) return;
 
       appState.diaryEntries.unshift({
@@ -2957,36 +3150,38 @@
     }
 
     function renderDiaryTab() {
-      const dateInp = document.getElementById('diary-date-input');
-      if (dateInp && !dateInp.value) dateInp.value = getTodayIso();
+      const dateInput = document.getElementById('diary-date-input');
+      if (dateInput && !dateInput.value) dateInput.value = getTodayIso();
 
-      const wrap = document.getElementById('diary-entries-list');
-      if (!wrap) return;
+      const list = document.getElementById('diary-entries-list');
+      if (!list) return;
 
-      if (appState.diaryEntries.length === 0) {
-        wrap.innerHTML = `<p class="py-6 text-center text-xs text-slate-400">В дневнике пока нет записей. Сохраните первое достижение или заметку о малыше!</p>`;
+      if (!appState.diaryEntries || appState.diaryEntries.length === 0) {
+        list.innerHTML = `<p class="py-6 text-center text-xs text-slate-400">В дневнике пока пусто. Запишите первую улыбку, новое умение или вопрос для педиатра.</p>`;
         return;
       }
 
-      wrap.innerHTML = appState.diaryEntries.map(e => `
-        <div class="p-4 rounded-2xl bg-warmgray/60 dark:bg-slate-800/60 border border-stone-200/60 dark:border-slate-700 flex items-start justify-between gap-3">
-          <div class="space-y-1 min-w-0">
+      list.innerHTML = appState.diaryEntries.map(e => `
+        <div class="p-3.5 rounded-2xl bg-warmgray/60 dark:bg-slate-800/60 border border-stone-200/70 dark:border-slate-700 space-y-1">
+          <div class="flex items-center justify-between gap-2">
             <div class="flex items-center gap-2">
-              <span class="px-2 py-0.5 rounded-md bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-300 text-[11px] font-bold">${e.tag}</span>
-              <span class="text-[11px] text-slate-400">${e.date}</span>
+              <span class="px-2 py-0.5 rounded-full bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-300 text-[10px] font-bold">${e.tag}</span>
+              <span class="text-[11px] text-slate-500">${e.date}</span>
             </div>
-            <h4 class="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100">${e.title}</h4>
-            ${e.text ? `<p class="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">${e.text}</p>` : ''}
+            <button type="button" onclick="deleteDiaryEntry('${e.id}')" class="p-1 text-slate-400 hover:text-rose-500">
+              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+            </button>
           </div>
-          <button type="button" onclick="deleteDiaryEntry('${e.id}')" class="p-1 text-slate-400 hover:text-rose-500 shrink-0">
-            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
-          </button>
+          <div class="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100">${e.title}</div>
+          ${e.text ? `<p class="text-xs text-slate-600 dark:text-slate-300">${e.text}</p>` : ''}
         </div>
       `).join('');
     }
 
-    // ==================== ПРОФИЛЬ И УМНЫЕ УВЕДОМЛЕНИЯ ====================
-    let tempGender = 'girl';
+    // =========================================================================
+    // 11. ПРОФИЛЬ И УМНЫЕ УВЕДОМЛЕНИЯ ПО ВОЗРАСТНЫМ НОРМАМ
+    // =========================================================================
+    let tempProfileGender = 'girl';
 
     function openProfileModal() {
       document.getElementById('profile-name-input').value = appState.profile.name || '';
@@ -2999,182 +3194,237 @@
     }
 
     function selectProfileGender(g) {
-      tempGender = g;
+      tempProfileGender = g;
       const gBtn = document.getElementById('gender-btn-girl');
       const bBtn = document.getElementById('gender-btn-boy');
       if (gBtn && bBtn) {
         gBtn.className = g === 'girl'
-          ? 'py-2.5 px-3 rounded-xl border border-rose-500 bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-300 text-xs font-bold flex items-center justify-center gap-1.5 transition'
-          : 'py-2.5 px-3 rounded-xl border border-stone-200 dark:border-slate-700 bg-warmgray dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-bold flex items-center justify-center gap-1.5 transition';
+          ? 'py-2.5 px-3 rounded-xl border border-rose-400 bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-300 text-xs font-bold flex items-center justify-center gap-1.5 transition'
+          : 'py-2.5 px-3 rounded-xl border border-stone-200 dark:border-slate-700 bg-warmgray/60 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-bold flex items-center justify-center gap-1.5 transition';
         bBtn.className = g === 'boy'
-          ? 'py-2.5 px-3 rounded-xl border border-sky-500 bg-sky-50 dark:bg-sky-950/60 text-sky-600 dark:text-sky-300 text-xs font-bold flex items-center justify-center gap-1.5 transition'
-          : 'py-2.5 px-3 rounded-xl border border-stone-200 dark:border-slate-700 bg-warmgray dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-bold flex items-center justify-center gap-1.5 transition';
+          ? 'py-2.5 px-3 rounded-xl border border-sky-400 bg-sky-50 dark:bg-sky-950/60 text-sky-600 dark:text-sky-300 text-xs font-bold flex items-center justify-center gap-1.5 transition'
+          : 'py-2.5 px-3 rounded-xl border border-stone-200 dark:border-slate-700 bg-warmgray/60 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-bold flex items-center justify-center gap-1.5 transition';
       }
     }
 
     function saveProfileSettings(event) {
       event.preventDefault();
-      appState.profile.name = document.getElementById('profile-name-input').value.trim() || 'Малыш';
+      appState.profile.name = (document.getElementById('profile-name-input').value || '').trim() || 'Малыш';
       appState.profile.dob = document.getElementById('profile-dob-input').value || getTodayIso();
-      appState.profile.gender = tempGender;
+      appState.profile.gender = tempProfileGender;
+
+      const info = calculateAgeInfo(appState.profile.dob);
+      appState.selectedWeek = info.weekNumber;
+      appState.weekFilterRange = getRangeForWeek(info.weekNumber);
 
       closeModal('modal-profile');
       renderAll();
+      evaluateSmartNotifications(false);
       saveState();
       showToast('Профиль малыша обновлён');
     }
 
-    function getAgeNotificationNorms() {
+    function getAgeNormThresholdsMin() {
       const info = calculateAgeInfo(appState.profile.dob);
-      const w = info.weekNumber;
-      if (w <= 8) return { feedMin: 150, wakeMin: 60, diaperMin: 180, label: 'каждые 2.5 ч' };
-      if (w <= 24) return { feedMin: 180, wakeMin: 110, diaperMin: 210, label: 'каждые 3 ч' };
-      if (w <= 52) return { feedMin: 210, wakeMin: 180, diaperMin: 240, label: 'каждые 3.5 ч' };
-      return { feedMin: 240, wakeMin: 330, diaperMin: 240, label: 'каждые 4 ч' };
+      const m = info.months;
+      if (m < 1) return { feedMin: 150, wakeMin: 60, diaperMin: 180 };
+      if (m < 4) return { feedMin: 180, wakeMin: 95, diaperMin: 210 };
+      if (m < 8) return { feedMin: 210, wakeMin: 150, diaperMin: 240 };
+      if (m < 14) return { feedMin: 240, wakeMin: 210, diaperMin: 240 };
+      return { feedMin: 270, wakeMin: 330, diaperMin: 240 };
     }
 
-    function openNotificationsModal() {
-      const norms = getAgeNotificationNorms();
-      document.getElementById('notif-norms-subtitle').textContent = `Норма кормления для возраста: ${norms.label}`;
-      document.getElementById('notif-opt-feeding').checked = Boolean(appState.notifications.feeding);
-      document.getElementById('notif-opt-sleep').checked = Boolean(appState.notifications.sleep);
-      document.getElementById('notif-opt-diaper').checked = Boolean(appState.notifications.diaper);
-      document.getElementById('notif-opt-sound').checked = Boolean(appState.notifications.sound);
-      renderNotifHistory();
-      openModal('modal-notifications');
+    function playSoftChime() {
+      if (!appState.notifications?.sound) return;
+      try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return;
+        const ctx = new AudioCtx();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.18);
+        gain.gain.setValueAtTime(0.05, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.45);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.46);
+      } catch (e) {}
     }
 
-    function toggleNotifSetting(key, val) {
-      appState.notifications[key] = val;
-      evaluateSmartNotifications(false);
-      saveState();
-    }
-
-    async function requestBrowserPushPermission() {
-      if (!('Notification' in window)) {
-        showToast('Браузер не поддерживает системные уведомления');
-        return;
-      }
-      const res = await Notification.requestPermission();
-      document.getElementById('push-status-label').textContent =
-        res === 'granted' ? 'Системные уведомления разрешены' : 'Разрешение отклонено в настройках браузера';
-      showToast(res === 'granted' ? 'Push-уведомления включены' : 'Уведомления заблокированы браузером');
-    }
-
-    function clearNotifHistory() {
-      appState.notifications.history = [];
-      renderNotifHistory();
-      saveState();
-    }
-
-    function renderNotifHistory() {
-      const wrap = document.getElementById('notif-history-list');
-      if (!wrap) return;
-      const hist = appState.notifications.history || [];
-      if (hist.length === 0) {
-        wrap.innerHTML = `<p class="py-3 text-center text-[11px] text-slate-400">История напоминаний пуста</p>`;
-        return;
-      }
-      wrap.innerHTML = hist.slice(0, 15).map(h => `
-        <div class="py-2 text-xs flex items-center justify-between gap-2">
-          <span class="text-slate-700 dark:text-slate-200">${h.text}</span>
-          <span class="text-[10px] text-slate-400 shrink-0">${h.time}</span>
-        </div>
-      `).join('');
-    }
-
-    function snoozeNotification(type) {
-      appState.notifications.snoozedUntil[type] = Date.now() + 20 * 60000;
-      evaluateSmartNotifications(false);
-      saveState();
-      showToast('Напоминание отложено на 20 минут');
-    }
-
-    function startTimerFromNotification(type) {
-      switchTab('journal');
-      if (type === 'diaper') {
-        addQuickCareLog('diaper_wet', 'Мокрый подгузник');
-      } else {
-        toggleTimer(type);
-      }
-    }
-
-    function evaluateSmartNotifications(playSound = false) {
+    function evaluateSmartNotifications(allowSound = true) {
       const banner = document.getElementById('smart-notif-banner');
       const badge = document.getElementById('header-notif-badge');
-      if (!banner || !badge) return;
+      if (!banner) return;
 
-      const norms = getAgeNotificationNorms();
+      const norms = getAgeNormThresholdsMin();
       const now = Date.now();
-      const snoozed = appState.notifications.snoozedUntil || {};
+      const snoozed = appState.notifications?.snoozedUntil || {};
       const alerts = [];
 
-      if (appState.notifications.feeding && !appState.timers.feeding.active && !(snoozed.feeding > now)) {
+      if (appState.notifications?.feeding && !appState.timers.feeding.active && !(snoozed.feeding > now)) {
         const lastFeed = appState.journalLogs.find(l => l.type === 'feeding');
-        if (lastFeed && (now - (lastFeed.endTime || lastFeed.startTime)) > norms.feedMin * 60000) {
-          alerts.push({
-            type: 'feeding',
-            title: 'Пора покормить малыша',
-            desc: `С прошлого кормления прошло больше ${Math.round(norms.feedMin / 60 * 10) / 10} ч`,
-            actionLabel: 'Начать кормление'
-          });
+        if (lastFeed) {
+          const minsAgo = Math.floor((now - (lastFeed.endTime || lastFeed.startTime)) / 60000);
+          if (minsAgo >= norms.feedMin) {
+            alerts.push({
+              id: 'feeding',
+              title: 'Пора предложить кормление',
+              desc: `С прошлого кормления прошло ${Math.floor(minsAgo / 60)} ч ${minsAgo % 60} мин (норма: каждые ${(norms.feedMin / 60).toFixed(1)} ч).`,
+              actionLabel: 'Начать кормление'
+            });
+          }
         }
       }
 
-      if (appState.notifications.sleep && !appState.timers.sleep.active && !(snoozed.sleep > now)) {
+      if (appState.notifications?.sleep && !appState.timers.sleep.active && !(snoozed.sleep > now)) {
         const lastSleep = appState.journalLogs.find(l => l.type === 'sleep');
-        if (lastSleep && (now - (lastSleep.endTime || lastSleep.startTime)) > norms.wakeMin * 60000) {
-          alerts.push({
-            type: 'sleep',
-            title: 'Заканчивается окно бодрствования',
-            desc: 'Малыш может устать — пора готовиться ко сну',
-            actionLabel: 'Малыш уснул'
-          });
+        if (lastSleep) {
+          const awakeMin = Math.floor((now - (lastSleep.endTime || lastSleep.startTime)) / 60000);
+          if (awakeMin >= norms.wakeMin && awakeMin < 720) {
+            alerts.push({
+              id: 'sleep',
+              title: 'Окно бодрствования подходит к концу',
+              desc: `Малыш не спит уже ${Math.floor(awakeMin / 60)} ч ${awakeMin % 60} мин — пора готовиться ко сну.`,
+              actionLabel: 'Уложить спать'
+            });
+          }
         }
       }
 
-      if (appState.notifications.diaper && !(snoozed.diaper > now)) {
-        const lastDiaper = appState.journalLogs.find(l => l.type.startsWith('diaper'));
-        if (lastDiaper && (now - lastDiaper.startTime) > norms.diaperMin * 60000) {
-          alerts.push({
-            type: 'diaper',
-            title: 'Пора проверить подгузник',
-            desc: 'Прошло больше 3–4 часов с прошлой смены',
-            actionLabel: 'Отметить смену'
-          });
+      if (appState.notifications?.diaper && !(snoozed.diaper > now)) {
+        const lastDiaper = appState.journalLogs.find(l => l.type === 'diaper_wet' || l.type === 'diaper_dirty');
+        if (lastDiaper) {
+          const minsAgo = Math.floor((now - lastDiaper.startTime) / 60000);
+          if (minsAgo >= norms.diaperMin) {
+            alerts.push({
+              id: 'diaper',
+              title: 'Пора проверить подгузник',
+              desc: `Прошло более ${Math.floor(minsAgo / 60)} ч с прошлой отметки.`,
+              actionLabel: 'Отметить смену'
+            });
+          }
+        }
+      }
+
+      if (badge) {
+        if (alerts.length > 0) {
+          badge.textContent = String(alerts.length);
+          badge.classList.remove('hidden');
+        } else {
+          badge.classList.add('hidden');
         }
       }
 
       if (alerts.length === 0) {
         banner.classList.add('hidden');
         banner.innerHTML = '';
-        badge.classList.add('hidden');
         return;
       }
-
-      badge.textContent = String(alerts.length);
-      badge.classList.remove('hidden');
 
       const top = alerts[0];
       banner.classList.remove('hidden');
       banner.innerHTML = `
-        <div class="rounded-2xl bg-amber-50/95 dark:bg-amber-950/60 border border-amber-300/80 dark:border-amber-800 p-3.5 flex flex-wrap items-center justify-between gap-3">
-          <div class="min-w-0">
-            <div class="text-xs sm:text-sm font-bold text-amber-900 dark:text-amber-200">${top.title}</div>
-            <div class="text-[11px] text-amber-800/80 dark:text-amber-300/80">${top.desc}</div>
+        <div class="rounded-2xl bg-amber-50/95 dark:bg-amber-950/60 border border-amber-300/80 dark:border-amber-800 p-3.5 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div class="space-y-0.5">
+            <div class="text-xs font-extrabold text-amber-900 dark:text-amber-200">${top.title}</div>
+            <div class="text-[11px] text-amber-800/90 dark:text-amber-300/90">${top.desc}</div>
           </div>
           <div class="flex items-center gap-1.5 shrink-0">
-            <button type="button" onclick="startTimerFromNotification('${top.type}')" class="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold transition">
+            <button type="button" onclick="handleSmartNotifAction('${top.id}')" class="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold transition">
               ${top.actionLabel}
             </button>
-            <button type="button" onclick="snoozeNotification('${top.type}')" class="px-2.5 py-1.5 rounded-xl bg-white/80 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold transition">
-              +20 мин
+            <button type="button" onclick="snoozeSmartNotif('${top.id}')" class="px-2.5 py-1.5 rounded-xl bg-white/80 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold transition">
+              +30 мин
             </button>
           </div>
         </div>
       `;
+
+      if (allowSound) playSoftChime();
     }
 
+    function handleSmartNotifAction(id) {
+      if (id === 'feeding') {
+        switchTab('journal');
+        if (!appState.timers.feeding.active) toggleTimer('feeding');
+      } else if (id === 'sleep') {
+        switchTab('journal');
+        if (!appState.timers.sleep.active) toggleTimer('sleep');
+      } else if (id === 'diaper') {
+        addQuickCareLog('diaper_wet', 'Мокрый подгузник');
+      }
+      appState.notifications.history.unshift({
+        time: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+        text: `Выполнено напоминание (${id})`
+      });
+      saveState();
+    }
+
+    function snoozeSmartNotif(id) {
+      if (!appState.notifications.snoozedUntil) appState.notifications.snoozedUntil = {};
+      appState.notifications.snoozedUntil[id] = Date.now() + 30 * 60000;
+      evaluateSmartNotifications(false);
+      saveState();
+      showToast('Напоминание отложено на 30 минут');
+    }
+
+    function openNotificationsModal() {
+      const norms = getAgeNormThresholdsMin();
+      document.getElementById('notif-opt-feeding').checked = Boolean(appState.notifications?.feeding);
+      document.getElementById('notif-opt-sleep').checked = Boolean(appState.notifications?.sleep);
+      document.getElementById('notif-opt-diaper').checked = Boolean(appState.notifications?.diaper);
+      document.getElementById('notif-opt-sound').checked = Boolean(appState.notifications?.sound);
+
+      document.getElementById('notif-feed-desc').textContent = `Норма по возрасту: каждые ${(norms.feedMin / 60).toFixed(1)} ч`;
+      document.getElementById('notif-sleep-desc').textContent = `Окно бодрствования: ~${norms.wakeMin} мин`;
+      document.getElementById('notif-diaper-desc').textContent = `Интервал проверки: каждые ${(norms.diaperMin / 60).toFixed(1)} ч`;
+
+      const pushLabel = document.getElementById('push-status-label');
+      if (pushLabel && 'Notification' in window) {
+        pushLabel.textContent = Notification.permission === 'granted'
+          ? 'Push-уведомления разрешены'
+          : Notification.permission === 'denied'
+            ? 'Заблокировано в настройках браузера'
+            : 'Нажмите «Включить» для системных уведомлений';
+      }
+
+      const histList = document.getElementById('notif-history-list');
+      const hist = appState.notifications?.history || [];
+      histList.innerHTML = hist.length === 0
+        ? `<p class="py-3 text-center text-[11px] text-slate-400">История напоминаний пока пуста</p>`
+        : hist.slice(0, 15).map(h => `<div class="py-1.5 text-[11px] text-slate-600 dark:text-slate-300"><span class="font-mono text-slate-400 mr-1.5">${h.time}</span>${h.text}</div>`).join('');
+
+      openModal('modal-notifications');
+    }
+
+    function toggleNotifSetting(key, checked) {
+      appState.notifications[key] = checked;
+      evaluateSmartNotifications(false);
+      saveState();
+    }
+
+    async function requestBrowserPushPermission() {
+      if (!('Notification' in window)) {
+        showToast('Браузер не поддерживает системные Push-уведомления');
+        return;
+      }
+      const res = await Notification.requestPermission();
+      openNotificationsModal();
+      showToast(res === 'granted' ? 'Push-уведомления включены' : 'Разрешение не выдано');
+    }
+
+    function clearNotifHistory() {
+      appState.notifications.history = [];
+      openNotificationsModal();
+      saveState();
+    }
+
+    // =========================================================================
+    // 12. ОБЩИЙ РЕНДЕР И ПРИВЯЗКА ГЛОБАЛЬНЫХ ФУНКЦИЙ
+    // =========================================================================
     function renderAll() {
       renderHeader();
       renderDevelopmentTab();
@@ -3183,33 +3433,50 @@
       renderGrowthTab();
       renderSymptoms();
       renderDiaryTab();
+      switchTab(activeTab);
     }
 
-    // Экспорт обработчиков в глобальную область window для inline-событий HTML
+    // Закрытие модальных окон по клику на фон или Escape
+    document.querySelectorAll('[id^="modal-"]').forEach(modalEl => {
+      modalEl.addEventListener('click', (e) => {
+        if (e.target === modalEl) closeModal(modalEl.id);
+      });
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        document.querySelectorAll('[id^="modal-"]').forEach(modalEl => {
+          if (!modalEl.classList.contains('hidden')) closeModal(modalEl.id);
+        });
+      }
+    });
+
+    // Регистрация всех обработчиков в глобальной области window
     Object.assign(window, {
       switchAuthMode,
       toggleAuthPasswordVisibility,
       handleAuthSubmit,
       logoutAccount,
+      showNetworkStatusToast,
+      triggerPwaInstall,
+      dismissPwaBanner,
+      cycleThemeMode,
+      setThemeMode,
       switchTab,
       openModal,
       closeModal,
-      cycleThemeMode,
-      setThemeMode,
-      openProfileModal,
-      selectProfileGender,
-      saveProfileSettings,
       filterWeekRange,
       selectWeek,
       jumpToWeekNumber,
       jumpToCurrentBabyWeek,
       toggleMilestone,
       setFeedingSubtype,
+      toggleActiveSleepType,
       toggleTimer,
       addQuickCareLog,
-      deleteJournalLog,
       openManualLogModal,
       saveManualLog,
+      deleteJournalLog,
       setRhythmDays,
       openToothModal,
       toggleTempToothSymptom,
@@ -3223,31 +3490,29 @@
       renderSymptoms,
       addDiaryEntry,
       deleteDiaryEntry,
+      openProfileModal,
+      selectProfileGender,
+      saveProfileSettings,
+      handleSmartNotifAction,
+      snoozeSmartNotif,
       openNotificationsModal,
       toggleNotifSetting,
       requestBrowserPushPermission,
-      clearNotifHistory,
-      snoozeNotification,
-      startTimerFromNotification,
-      triggerPwaInstall,
-      dismissPwaBanner,
-      showNetworkStatusToast
+      clearNotifHistory
     });
 
-    // Обновление живых таймеров каждую секунду и проверка напоминаний каждые 30 секунд
+    // Запуск интервалов обновления таймеров и инициализация приложения
     setInterval(() => {
-      updateTimerDisplays();
+      if (currentAccountLogin) updateTimerDisplays();
     }, 1000);
 
     setInterval(() => {
-      if (currentAccountLogin) evaluateSmartNotifications(false);
-    }, 30000);
+      if (currentAccountLogin) evaluateSmartNotifications(true);
+    }, 60000);
 
-    // Инициализация приложения при загрузке
-    applyTheme(appState.themeMode || 'auto');
+    applyTheme(appState.themeMode);
     initPwaManifestAndIcons();
     warmOfflineCache();
-    updateNetworkStatusUI();
     restoreExistingSession();
   </script>
 </body>
