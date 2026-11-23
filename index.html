@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="Малыш+" />
   <link rel="manifest" id="pwa-manifest-link" href="" />
-  <link rel="apple-touch-icon" id="pwa-apple-icon" href="" />
+  <link rel="apple-touch-icon" id="pwa-apple-icon" sizes="180x180" href="" />
   <link rel="icon" id="pwa-favicon" type="image/png" href="" />
   <!-- Шрифты Inter и Nunito -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -836,6 +836,13 @@
         <button type="button" onclick="closeModal('modal-pwa-install')" aria-label="Закрыть" class="p-1.5 rounded-xl hover:bg-stone-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition shrink-0">
           <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
         </button>
+      </div>
+      <div class="flex items-center gap-3.5 p-3 rounded-2xl bg-warmgray/70 dark:bg-slate-800/80 border border-stone-200/70 dark:border-slate-700">
+        <img id="pwa-modal-icon-preview" src="" alt="Иконка Малыш+" class="w-16 h-16 rounded-2xl shadow-md shrink-0 object-cover bg-sky-100" />
+        <div class="min-w-0">
+          <div class="font-display font-extrabold text-sm text-slate-900 dark:text-slate-100">Малыш+ (0–5 лет)</div>
+          <div class="text-[11px] text-slate-500 dark:text-slate-400 leading-snug mt-0.5">Так иконка приложения будет выглядеть на главном экране вашего устройства</div>
+        </div>
       </div>
       <p class="text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
         Установите <strong>Малыш+</strong> как отдельное приложение, чтобы запускать его одним касанием с рабочего стола и пользоваться без интернета:
@@ -1665,6 +1672,7 @@
     // 4. ПОЛНОЦЕННЫЙ ОФЛАЙН-РЕЖИМ И УСТАНОВКА НА ЭКРАН «ДОМОЙ» (PWA)
     // =========================================================================
     let deferredInstallPrompt = null;
+    let cachedAppIconDataUrl = '';
 
     function isStandalonePwa() {
       return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
@@ -1676,89 +1684,440 @@
              (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     }
 
-    function generatePwaIconBlob(size) {
-      return new Promise((resolve) => {
-        try {
-          const canvas = document.createElement('canvas');
-          canvas.width = size;
-          canvas.height = size;
-          const ctx = canvas.getContext('2d');
-          const r = Math.round(size * 0.22);
-
-          const grad = ctx.createLinearGradient(0, 0, size, size);
-          grad.addColorStop(0, '#F43F5E');
-          grad.addColorStop(1, '#FB923C');
-
-          ctx.beginPath();
-          ctx.moveTo(r, 0);
-          ctx.lineTo(size - r, 0);
-          ctx.quadraticCurveTo(size, 0, size, r);
-          ctx.lineTo(size, size - r);
-          ctx.quadraticCurveTo(size, size, size - r, size);
-          ctx.lineTo(r, size);
-          ctx.quadraticCurveTo(0, size, 0, size - r);
-          ctx.lineTo(0, r);
-          ctx.quadraticCurveTo(0, 0, r, 0);
-          ctx.closePath();
-          ctx.fillStyle = grad;
-          ctx.fill();
-
-          const cx = size * 0.5;
-          const cy = size * 0.52;
-          const faceR = size * 0.29;
-          ctx.strokeStyle = '#FFFFFF';
-          ctx.lineWidth = Math.max(3, Math.round(size * 0.045));
-          ctx.lineCap = 'round';
-
-          ctx.beginPath();
-          ctx.arc(cx, cy, faceR, 0, Math.PI * 2);
-          ctx.stroke();
-
-          ctx.beginPath();
-          ctx.arc(cx + faceR * 0.12, cy - faceR, faceR * 0.24, Math.PI * 0.85, Math.PI * 1.95);
-          ctx.stroke();
-
-          const eyeR = Math.max(2, size * 0.026);
-          ctx.fillStyle = '#FFFFFF';
-          ctx.beginPath();
-          ctx.arc(cx - faceR * 0.34, cy - faceR * 0.1, eyeR, 0, Math.PI * 2);
-          ctx.arc(cx + faceR * 0.34, cy - faceR * 0.1, eyeR, 0, Math.PI * 2);
-          ctx.fill();
-
-          ctx.beginPath();
-          ctx.arc(cx, cy + faceR * 0.08, faceR * 0.38, 0.2 * Math.PI, 0.8 * Math.PI);
-          ctx.stroke();
-
-          canvas.toBlob((blob) => resolve(blob), 'image/png');
-        } catch (e) {
-          resolve(null);
-        }
-      });
+    function drawStarShape(ctx, cx, cy, spikes, outerR, innerR, fillStyle) {
+      ctx.save();
+      ctx.beginPath();
+      let rot = (Math.PI / 2) * 3;
+      const step = Math.PI / spikes;
+      ctx.moveTo(cx, cy - outerR);
+      for (let i = 0; i < spikes; i++) {
+        ctx.lineTo(cx + Math.cos(rot) * outerR, cy + Math.sin(rot) * outerR);
+        rot += step;
+        ctx.lineTo(cx + Math.cos(rot) * innerR, cy + Math.sin(rot) * innerR);
+        rot += step;
+      }
+      ctx.closePath();
+      ctx.fillStyle = fillStyle;
+      ctx.fill();
+      ctx.restore();
     }
 
-    async function initPwaManifestAndIcons() {
+    function drawCloudShape(ctx, cx, cy, scale, s) {
+      ctx.save();
+      ctx.translate(cx * s, cy * s);
+      ctx.scale(scale * s, scale * s);
+      ctx.shadowColor = 'rgba(148, 185, 220, 0.25)';
+      ctx.shadowBlur = 8 * s;
+      ctx.shadowOffsetY = 3 * s;
+      ctx.fillStyle = '#FFFFFF';
+      ctx.beginPath();
+      ctx.arc(-0.045, 0.01, 0.032, 0, Math.PI * 2);
+      ctx.arc(-0.012, -0.012, 0.042, 0, Math.PI * 2);
+      ctx.arc(0.032, -0.004, 0.036, 0, Math.PI * 2);
+      ctx.arc(0.062, 0.015, 0.025, 0, Math.PI * 2);
+      ctx.roundRect(-0.065, 0.008, 0.142, 0.032, 0.016);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function generateCustomAppIconDataUrl(size) {
       try {
-        const [icon192, icon512] = await Promise.all([
-          generatePwaIconBlob(192),
-          generatePwaIconBlob(512)
-        ]);
+        const s = size;
+        const canvas = document.createElement('canvas');
+        canvas.width = s;
+        canvas.height = s;
+        const ctx = canvas.getContext('2d');
 
-        const url192 = icon192 ? URL.createObjectURL(icon192) : '';
-        const url512 = icon512 ? URL.createObjectURL(icon512) : url192;
+        // 1. Пастельный многоцветный фон (небесно-голубой -> тёплый жёлтый -> нежно-розовый)
+        const bgGrad = ctx.createLinearGradient(0, 0, s, s);
+        bgGrad.addColorStop(0, '#B5E6FF');
+        bgGrad.addColorStop(0.48, '#E4F3FF');
+        bgGrad.addColorStop(0.75, '#FFF0C2');
+        bgGrad.addColorStop(1, '#FFC4DC');
+        ctx.fillStyle = bgGrad;
+        ctx.fillRect(0, 0, s, s);
 
-        if (url192) {
-          const fav = document.getElementById('pwa-favicon');
+        const yellowGlow = ctx.createRadialGradient(s * 0.15, s * 0.72, s * 0.02, s * 0.15, s * 0.72, s * 0.55);
+        yellowGlow.addColorStop(0, 'rgba(255, 232, 155, 0.85)');
+        yellowGlow.addColorStop(1, 'rgba(255, 232, 155, 0)');
+        ctx.fillStyle = yellowGlow;
+        ctx.fillRect(0, 0, s, s);
+
+        const pinkBottom = ctx.createLinearGradient(0, s * 0.82, 0, s);
+        pinkBottom.addColorStop(0, 'rgba(255, 168, 202, 0)');
+        pinkBottom.addColorStop(1, 'rgba(249, 150, 190, 0.78)');
+        ctx.fillStyle = pinkBottom;
+        ctx.fillRect(0, 0, s, s);
+
+        // 2. Мягкая внутренняя 3D-рамка скруглённой плитки
+        ctx.save();
+        ctx.beginPath();
+        ctx.roundRect(s * 0.03, s * 0.03, s * 0.94, s * 0.94, s * 0.21);
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.65)';
+        ctx.lineWidth = Math.max(2, s * 0.014);
+        ctx.stroke();
+        ctx.restore();
+
+        // 3. Облачка и звёздочки
+        drawCloudShape(ctx, 0.15, 0.34, 1.05, s);
+        drawCloudShape(ctx, 0.12, 0.63, 0.58, s);
+        drawCloudShape(ctx, 0.89, 0.62, 0.78, s);
+
+        drawStarShape(ctx, s * 0.83, s * 0.18, 5, s * 0.045, s * 0.021, '#FFBE2E');
+        drawStarShape(ctx, s * 0.14, s * 0.44, 5, s * 0.022, s * 0.010, '#FFC83D');
+        drawStarShape(ctx, s * 0.86, s * 0.71, 5, s * 0.022, s * 0.010, '#FFC83D');
+        drawStarShape(ctx, s * 0.15, s * 0.19, 4, s * 0.022, s * 0.007, '#F48FB1');
+        drawStarShape(ctx, s * 0.75, s * 0.17, 4, s * 0.018, s * 0.006, '#FFD54F');
+
+        // 4. Листики в нижних углах
+        ctx.save();
+        ctx.fillStyle = '#6BCB5F';
+        ctx.beginPath();
+        ctx.ellipse(s * 0.12, s * 0.78, s * 0.065, s * 0.032, -0.75, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#4FB548';
+        ctx.beginPath();
+        ctx.ellipse(s * 0.16, s * 0.82, s * 0.06, s * 0.028, -0.35, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#6BCB5F';
+        ctx.beginPath();
+        ctx.ellipse(s * 0.88, s * 0.80, s * 0.06, s * 0.028, 0.65, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+
+        // 5. Объёмный заголовок «0-5» и «лет» сверху
+        ctx.save();
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const bigFontSize = Math.round(s * 0.255);
+        ctx.font = `900 ${bigFontSize}px Nunito, "Arial Rounded MT Bold", sans-serif`;
+
+        ctx.shadowColor = 'rgba(130, 155, 205, 0.42)';
+        ctx.shadowBlur = s * 0.025;
+        ctx.shadowOffsetY = s * 0.014;
+
+        ctx.lineWidth = Math.max(3, s * 0.022);
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.strokeText('0-5', s * 0.50, s * 0.205);
+
+        const textGrad = ctx.createLinearGradient(0, s * 0.09, 0, s * 0.31);
+        textGrad.addColorStop(0, '#FFE49E');
+        textGrad.addColorStop(0.5, '#F8BBD0');
+        textGrad.addColorStop(1, '#B3D9FF');
+        ctx.fillStyle = textGrad;
+        ctx.fillText('0-5', s * 0.50, s * 0.205);
+
+        const subFontSize = Math.round(s * 0.098);
+        ctx.font = `900 ${subFontSize}px Nunito, "Arial Rounded MT Bold", sans-serif`;
+        ctx.lineWidth = Math.max(2, s * 0.014);
+        ctx.strokeStyle = 'rgba(235, 195, 185, 0.85)';
+        ctx.strokeText('лет', s * 0.50, s * 0.355);
+        ctx.fillStyle = '#FFFDF9';
+        ctx.fillText('лет', s * 0.50, s * 0.355);
+        ctx.restore();
+
+        // 6. Радужная лесенка роста и розовая стрелка графика вверх
+        ctx.save();
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        const rungs = [
+          { y1: 0.74, y2: 0.77, x1: 0.43, x2: 0.55, color: '#9C6ADE' },
+          { y1: 0.67, y2: 0.70, x1: 0.47, x2: 0.59, color: '#F06595' },
+          { y1: 0.60, y2: 0.63, x1: 0.51, x2: 0.63, color: '#51CF66' },
+          { y1: 0.53, y2: 0.56, x1: 0.55, x2: 0.67, color: '#FCC419' },
+          { y1: 0.46, y2: 0.49, x1: 0.59, x2: 0.71, color: '#339AF0' }
+        ];
+        rungs.forEach(r => {
+          ctx.strokeStyle = r.color;
+          ctx.lineWidth = s * 0.026;
+          ctx.beginPath();
+          ctx.moveTo(s * r.x1, s * r.y1);
+          ctx.lineTo(s * r.x2, s * r.y2);
+          ctx.stroke();
+        });
+
+        // Правая жёлто-оранжевая стойка лестницы
+        ctx.strokeStyle = '#FFA928';
+        ctx.lineWidth = s * 0.034;
+        ctx.beginPath();
+        ctx.moveTo(s * 0.56, s * 0.85);
+        ctx.lineTo(s * 0.75, s * 0.42);
+        ctx.stroke();
+
+        // Левая синяя стойка лестницы
+        ctx.strokeStyle = '#3B82F6';
+        ctx.lineWidth = s * 0.030;
+        ctx.beginPath();
+        ctx.moveTo(s * 0.41, s * 0.77);
+        ctx.lineTo(s * 0.63, s * 0.43);
+        ctx.stroke();
+
+        // Зигзагообразная градиентная стрелка роста (фиолетово-розово-коралловая)
+        const arrowGrad = ctx.createLinearGradient(s * 0.39, s * 0.76, s * 0.78, s * 0.25);
+        arrowGrad.addColorStop(0, '#A855F7');
+        arrowGrad.addColorStop(0.5, '#F43F5E');
+        arrowGrad.addColorStop(1, '#FB7185');
+        ctx.strokeStyle = arrowGrad;
+        ctx.lineWidth = s * 0.042;
+        ctx.beginPath();
+        ctx.moveTo(s * 0.39, s * 0.76);
+        ctx.lineTo(s * 0.54, s * 0.49);
+        ctx.lineTo(s * 0.60, s * 0.54);
+        ctx.lineTo(s * 0.76, s * 0.28);
+        ctx.stroke();
+
+        // Наконечник стрелки
+        ctx.fillStyle = '#FB6F84';
+        ctx.beginPath();
+        ctx.moveTo(s * 0.80, s * 0.22);
+        ctx.lineTo(s * 0.69, s * 0.27);
+        ctx.lineTo(s * 0.79, s * 0.34);
+        ctx.closePath();
+        ctx.fill();
+
+        // Три оранжевых лучика над изгибом стрелки
+        ctx.strokeStyle = '#FF9F1C';
+        ctx.lineWidth = s * 0.016;
+        ctx.beginPath();
+        ctx.moveTo(s * 0.49, s * 0.46); ctx.lineTo(s * 0.46, s * 0.44);
+        ctx.moveTo(s * 0.52, s * 0.43); ctx.lineTo(s * 0.50, s * 0.40);
+        ctx.moveTo(s * 0.56, s * 0.42); ctx.lineTo(s * 0.56, s * 0.39);
+        ctx.stroke();
+
+        // Цифры 0 и 5 на шкале
+        ctx.font = `900 ${Math.round(s * 0.088)}px Nunito, sans-serif`;
+        ctx.fillStyle = '#4C4B9B';
+        ctx.fillText('0', s * 0.60, s * 0.85);
+        ctx.fillText('5', s * 0.84, s * 0.34);
+        ctx.restore();
+
+        // 7. Милый жирафик справа
+        ctx.save();
+        // Тень под лапками
+        ctx.fillStyle = 'rgba(215, 125, 155, 0.32)';
+        ctx.beginPath();
+        ctx.ellipse(s * 0.73, s * 0.87, s * 0.11, s * 0.022, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Хвостик
+        ctx.strokeStyle = '#F7B731';
+        ctx.lineWidth = s * 0.014;
+        ctx.beginPath();
+        ctx.moveTo(s * 0.81, s * 0.69);
+        ctx.quadraticCurveTo(s * 0.86, s * 0.73, s * 0.85, s * 0.78);
+        ctx.stroke();
+        ctx.fillStyle = '#6D3B24';
+        ctx.beginPath();
+        ctx.arc(s * 0.85, s * 0.785, s * 0.013, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Ножки жирафа
+        const legs = [0.675, 0.715, 0.765, 0.805];
+        legs.forEach((lx) => {
+          ctx.fillStyle = '#F7B731';
+          ctx.roundRect(s * (lx - 0.013), s * 0.73, s * 0.026, s * 0.13, s * 0.01);
+          ctx.fill();
+          ctx.fillStyle = '#6D3B24';
+          ctx.beginPath();
+          ctx.ellipse(s * lx, s * 0.86, s * 0.015, s * 0.009, 0, 0, Math.PI * 2);
+          ctx.fill();
+        });
+
+        // Тело и шея жирафа
+        ctx.fillStyle = '#FFC83D';
+        ctx.beginPath();
+        ctx.ellipse(s * 0.74, s * 0.71, s * 0.082, s * 0.062, -0.08, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.moveTo(s * 0.67, s * 0.70);
+        ctx.lineTo(s * 0.71, s * 0.45);
+        ctx.lineTo(s * 0.77, s * 0.46);
+        ctx.lineTo(s * 0.78, s * 0.70);
+        ctx.closePath();
+        ctx.fill();
+
+        // Пятнышки на жирафе
+        ctx.fillStyle = '#C96A2B';
+        const spots = [
+          [0.73, 0.52, 0.012], [0.75, 0.56, 0.014], [0.72, 0.60, 0.013],
+          [0.71, 0.69, 0.017], [0.76, 0.68, 0.016], [0.74, 0.73, 0.015], [0.79, 0.72, 0.012]
+        ];
+        spots.forEach(([sx, sy, sr]) => {
+          ctx.beginPath();
+          ctx.arc(s * sx, s * sy, s * sr, 0, Math.PI * 2);
+          ctx.fill();
+        });
+
+        // Грива
+        ctx.fillStyle = '#6D3B24';
+        for (let m = 0; m < 5; m++) {
+          ctx.beginPath();
+          ctx.arc(s * (0.772 + m * 0.003), s * (0.48 + m * 0.036), s * 0.012, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // Рожки (оссиконы) и ушки
+        ctx.strokeStyle = '#F7B731';
+        ctx.lineWidth = s * 0.013;
+        ctx.beginPath();
+        ctx.moveTo(s * 0.73, s * 0.40); ctx.lineTo(s * 0.72, s * 0.365);
+        ctx.moveTo(s * 0.76, s * 0.40); ctx.lineTo(s * 0.77, s * 0.365);
+        ctx.stroke();
+        ctx.fillStyle = '#C96A2B';
+        ctx.beginPath();
+        ctx.arc(s * 0.72, s * 0.362, s * 0.011, 0, Math.PI * 2);
+        ctx.arc(s * 0.77, s * 0.362, s * 0.011, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Голова жирафа
+        ctx.fillStyle = '#FFC83D';
+        ctx.beginPath();
+        ctx.ellipse(s * 0.74, s * 0.43, s * 0.056, s * 0.046, -0.15, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Светлая мордочка и улыбка жирафа
+        ctx.fillStyle = '#FFF1D6';
+        ctx.beginPath();
+        ctx.ellipse(s * 0.715, s * 0.445, s * 0.034, s * 0.025, -0.15, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#3B2314';
+        ctx.beginPath();
+        ctx.arc(s * 0.752, s * 0.415, s * 0.008, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#6D3B24';
+        ctx.lineWidth = s * 0.007;
+        ctx.beginPath();
+        ctx.arc(s * 0.712, s * 0.445, s * 0.014, 0.15 * Math.PI, 0.85 * Math.PI);
+        ctx.stroke();
+        ctx.restore();
+
+        // 8. Улыбающийся малыш слева
+        ctx.save();
+        // Тень под малышом
+        ctx.fillStyle = 'rgba(215, 125, 155, 0.32)';
+        ctx.beginPath();
+        ctx.ellipse(s * 0.28, s * 0.86, s * 0.13, s * 0.025, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Ножки и подгузник
+        ctx.fillStyle = '#F7B79C';
+        ctx.beginPath();
+        ctx.ellipse(s * 0.22, s * 0.81, s * 0.058, s * 0.036, 0.25, 0, Math.PI * 2);
+        ctx.ellipse(s * 0.33, s * 0.83, s * 0.052, s * 0.032, -0.15, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Подгузник
+        ctx.fillStyle = '#F8FAFC';
+        ctx.beginPath();
+        ctx.ellipse(s * 0.275, s * 0.755, s * 0.082, s * 0.068, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#CBD5E1';
+        ctx.lineWidth = s * 0.008;
+        ctx.stroke();
+
+        // Туловище и ручки малыша, тянущиеся к стрелке роста
+        ctx.fillStyle = '#FBC4AB';
+        ctx.beginPath();
+        ctx.ellipse(s * 0.275, s * 0.665, s * 0.072, s * 0.068, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Ручки
+        ctx.lineCap = 'round';
+        ctx.strokeStyle = '#FBC4AB';
+        ctx.lineWidth = s * 0.034;
+        ctx.beginPath();
+        ctx.moveTo(s * 0.32, s * 0.63); ctx.lineTo(s * 0.42, s * 0.59);
+        ctx.moveTo(s * 0.32, s * 0.68); ctx.lineTo(s * 0.40, s * 0.68);
+        ctx.stroke();
+
+        // Голова малыша
+        const headGrad = ctx.createRadialGradient(s * 0.25, s * 0.48, s * 0.02, s * 0.27, s * 0.51, s * 0.13);
+        headGrad.addColorStop(0, '#FFE0D0');
+        headGrad.addColorStop(1, '#F5B093');
+        ctx.fillStyle = headGrad;
+        ctx.beginPath();
+        ctx.arc(s * 0.27, s * 0.515, s * 0.112, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Ушко
+        ctx.fillStyle = '#F5B093';
+        ctx.beginPath();
+        ctx.arc(s * 0.158, s * 0.525, s * 0.022, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Волосы и вихор
+        ctx.fillStyle = '#8D5538';
+        ctx.beginPath();
+        ctx.arc(s * 0.265, s * 0.475, s * 0.108, Math.PI * 1.02, Math.PI * 1.92);
+        ctx.quadraticCurveTo(s * 0.29, s * 0.425, s * 0.22, s * 0.44);
+        ctx.quadraticCurveTo(s * 0.18, s * 0.45, s * 0.158, s * 0.49);
+        ctx.fill();
+
+        // Румянец на щёчках
+        ctx.fillStyle = 'rgba(244, 114, 130, 0.35)';
+        ctx.beginPath();
+        ctx.ellipse(s * 0.225, s * 0.545, s * 0.024, s * 0.015, 0, 0, Math.PI * 2);
+        ctx.ellipse(s * 0.335, s * 0.535, s * 0.022, s * 0.014, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Большие выразительные глазки с бликами
+        ctx.fillStyle = '#3B2314';
+        ctx.beginPath();
+        ctx.arc(s * 0.245, s * 0.512, s * 0.018, 0, Math.PI * 2);
+        ctx.arc(s * 0.322, s * 0.502, s * 0.017, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#FFFFFF';
+        ctx.beginPath();
+        ctx.arc(s * 0.240, s * 0.506, s * 0.0065, 0, Math.PI * 2);
+        ctx.arc(s * 0.317, s * 0.496, s * 0.006, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Широкая счастливая улыбка
+        ctx.fillStyle = '#E05A6D';
+        ctx.beginPath();
+        ctx.arc(s * 0.288, s * 0.548, s * 0.028, 0.05 * Math.PI, 0.95 * Math.PI);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+
+        return canvas.toDataURL('image/png');
+      } catch (e) {
+        return '';
+      }
+    }
+
+    function initPwaManifestAndIcons() {
+      try {
+        const dataUrl180 = generateCustomAppIconDataUrl(180);
+        const dataUrl192 = generateCustomAppIconDataUrl(192);
+        const dataUrl512 = generateCustomAppIconDataUrl(512);
+        cachedAppIconDataUrl = dataUrl192 || dataUrl180;
+
+        if (dataUrl180) {
           const apple = document.getElementById('pwa-apple-icon');
-          if (fav) fav.href = url192;
-          if (apple) apple.href = url192;
+          if (apple) apple.href = dataUrl180;
+        }
+        if (dataUrl192) {
+          const fav = document.getElementById('pwa-favicon');
+          if (fav) fav.href = dataUrl192;
+        }
+
+        const modalPreview = document.getElementById('pwa-modal-icon-preview');
+        if (modalPreview && cachedAppIconDataUrl) {
+          modalPreview.src = cachedAppIconDataUrl;
         }
 
         const icons = [];
-        if (url192) icons.push({ src: url192, sizes: '192x192', type: 'image/png', purpose: 'any maskable' });
-        if (url512) icons.push({ src: url512, sizes: '512x512', type: 'image/png', purpose: 'any maskable' });
+        if (dataUrl192) icons.push({ src: dataUrl192, sizes: '192x192', type: 'image/png', purpose: 'any maskable' });
+        if (dataUrl512) icons.push({ src: dataUrl512, sizes: '512x512', type: 'image/png', purpose: 'any maskable' });
 
         const manifestData = {
-          name: 'Малыш+ — Календарь развития и журнал малыша',
+          name: 'Малыш+ — Календарь развития 0–5 лет',
           short_name: 'Малыш+',
           description: 'Понедельный календарь развития 0–5 лет, журнал кормлений и сна, зубная карта и прививки с офлайн-режимом',
           start_url: window.location.href.split('#')[0],
@@ -1766,124 +2125,31 @@
           display: 'standalone',
           orientation: 'portrait',
           background_color: '#FDFBF7',
-          theme_color: '#F43F5E',
+          theme_color: '#B5E6FF',
           lang: 'ru',
           icons
         };
 
-        const manifestBlob = new Blob([JSON.stringify(manifestData)], { type: 'application/manifest+json' });
-        const manifestUrl = URL.createObjectURL(manifestBlob);
+        const manifestUrl = 'data:application/manifest+json;charset=utf-8,' + encodeURIComponent(JSON.stringify(manifestData));
         const linkEl = document.getElementById('pwa-manifest-link');
         if (linkEl) linkEl.href = manifestUrl;
+
+        renderPwaInstallUI();
       } catch (e) {}
     }
 
     async function warmOfflineCache() {
-      if (!('caches' in window)) return;
-      try {
-        const cache = await caches.open('malysh-plus-offline-v1');
-        const urlsToCache = [
-          window.location.href.split('#')[0],
-          'https://cdn.tailwindcss.com'
-        ];
-        await Promise.allSettled(
-          urlsToCache.map(async (u) => {
-            try {
-              const resp = await fetch(u, { mode: u.startsWith(window.location.origin) ? 'same-origin' : 'no-cors' });
-              if (resp) await cache.put(u, resp);
-            } catch (err) {}
-          })
-        );
-      } catch (e) {}
-    }
-
-    function updateNetworkStatusUI() {
-      const isOnline = typeof navigator === 'undefined' ? true : navigator.onLine;
-      const pending = hasPendingOfflineChanges(currentAccountLogin);
-
-      const pill = document.getElementById('header-net-pill');
-      const dot = document.getElementById('header-net-dot');
-      const label = document.getElementById('header-net-label');
-      const profileStatus = document.getElementById('profile-offline-status');
-
-      if (pill && dot && label) {
-        if (!isOnline) {
-          pill.className = 'inline-flex items-center justify-center gap-1.5 min-w-[34px] min-h-[38px] px-2 sm:px-2.5 py-2 rounded-xl bg-amber-50 dark:bg-amber-950/60 border border-amber-300/80 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-xs font-semibold transition';
-          dot.className = 'w-2 h-2 rounded-full bg-amber-500 animate-pulse shrink-0';
-          label.textContent = 'Офлайн';
-        } else if (pending) {
-          pill.className = 'inline-flex items-center justify-center gap-1.5 min-w-[34px] min-h-[38px] px-2 sm:px-2.5 py-2 rounded-xl bg-sky-50 dark:bg-sky-950/60 border border-sky-200 dark:border-sky-800 text-sky-700 dark:text-sky-300 text-xs font-semibold transition';
-          dot.className = 'w-2 h-2 rounded-full bg-sky-500 animate-pulse shrink-0';
-          label.textContent = 'Синхр...';
-        } else {
-          pill.className = 'inline-flex items-center justify-center gap-1.5 min-w-[34px] min-h-[38px] px-2 sm:px-2.5 py-2 rounded-xl bg-emerald-50/90 dark:bg-emerald-950/50 border border-emerald-200/70 dark:border-emerald-800/60 text-emerald-700 dark:text-emerald-300 text-xs font-semibold transition';
-          dot.className = 'w-2 h-2 rounded-full bg-emerald-500 shrink-0';
-          label.textContent = 'Онлайн';
-        }
-      }
-
-      if (profileStatus) {
-        if (!isOnline) {
-          profileStatus.textContent = 'Офлайн (сохраняется на устройстве)';
-          profileStatus.className = 'text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300';
-        } else if (pending) {
-          profileStatus.textContent = 'Ожидает синхронизации...';
-          profileStatus.className = 'text-[11px] font-semibold px-2 py-0.5 rounded-full bg-sky-100 dark:bg-sky-950/70 text-sky-700 dark:text-sky-300';
-        } else {
-          profileStatus.textContent = 'Онлайн • Готово к офлайну';
-          profileStatus.className = 'text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300';
-        }
-      }
-    }
-
-    function showNetworkStatusToast() {
-      const isOnline = typeof navigator === 'undefined' ? true : navigator.onLine;
-      if (!isOnline) {
-        showToast('Офлайн-режим: все записи сохраняются на устройстве и отправятся в облако при подключении');
-      } else if (hasPendingOfflineChanges(currentAccountLogin)) {
-        flushPendingSync(true);
-      } else {
-        showToast('Подключение активно • Данные синхронизированы и доступны офлайн');
-      }
-    }
-
-    function renderPwaInstallUI() {
-      const banner = document.getElementById('pwa-install-banner');
-      const profileBtn = document.getElementById('profile-pwa-install-btn');
-      const profileLabel = document.getElementById('profile-pwa-install-label');
-
-      if (isStandalonePwa()) {
-        if (banner) banner.classList.add('hidden');
-        if (profileLabel) profileLabel.textContent = 'Приложение установлено на экран «Домой»';
-        if (profileBtn) profileBtn.disabled = true;
-        return;
-      }
-
-      if (profileLabel) {
-        profileLabel.textContent = deferredInstallPrompt
-          ? 'Установить приложение (в 1 касание)'
-          : 'Добавить на экран «Домой»';
-      }
-
-      if (!banner) return;
-      let dismissedUntil = 0;
-      try {
-        dismissedUntil = Number(localStorage.getItem('malysh_plus_pwa_dismissed_until') || 0);
-      } catch (e) {}
-
-      if (Date.now() < dismissedUntil || !currentAccountLogin) {
-        banner.classList.add('hidden');
-        banner.innerHTML = '';
-        return;
-      }
-
+// ... existing code ... -->
       banner.classList.remove('hidden');
+      const iconThumbHtml = cachedAppIconDataUrl
+        ? `<img src="${cachedAppIconDataUrl}" alt="Малыш+" class="w-10 h-10 rounded-xl shadow-2xs shrink-0 object-cover" />`
+        : `<span class="w-10 h-10 rounded-xl bg-rose-50 dark:bg-rose-950/60 text-rose-500 flex items-center justify-center shrink-0">
+            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="3"/><path d="M12 18h.01"/></svg>
+          </span>`;
       banner.innerHTML = `
         <div class="rounded-2xl bg-white dark:bg-slate-900 border border-stone-200/80 dark:border-slate-800 p-3.5 shadow-2xs flex items-center justify-between gap-3">
           <div class="flex items-center gap-2.5 min-w-0">
-            <span class="w-9 h-9 rounded-xl bg-rose-50 dark:bg-rose-950/60 text-rose-500 flex items-center justify-center shrink-0">
-              <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="3"/><path d="M12 18h.01"/></svg>
-            </span>
+            ${iconThumbHtml}
             <div class="min-w-0">
               <div class="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 truncate">Установите «Малыш+» на экран «Домой»</div>
               <div class="text-[11px] text-slate-500 dark:text-slate-400 truncate">Быстрый запуск с иконки и работа без интернета</div>
@@ -3512,6 +3778,9 @@
 
     applyTheme(appState.themeMode);
     initPwaManifestAndIcons();
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(() => initPwaManifestAndIcons());
+    }
     warmOfflineCache();
     restoreExistingSession();
   </script>
