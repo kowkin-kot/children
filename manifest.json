@@ -1,0 +1,31 @@
+{
+  "name": "Малыш+ — Календарь развития 0–5 лет",
+  "short_name": "Малыш+",
+  "description": "Календарь развития ребёнка от 0 до 5 лет, журнал кормлений, сна и здоровья",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#FDFBF7",
+  "theme_color": "#FDFBF7",
+  "icons": [
+    {
+      "src": "https://kowkin-kot.github.io/children/app_icon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "https://kowkin-kot.github.io/children/app_icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://kowkin-kot.github.io/children/app_icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
