@@ -502,9 +502,14 @@
 
       <!-- Быстрые отметки ухода и ручной ввод -->
       <div class="bg-white dark:bg-slate-900 rounded-3xl border border-stone-200/70 dark:border-slate-800 p-4 space-y-3 shadow-2xs">
-        <div class="flex items-center justify-between">
+        <button type="button" onclick="openManualLogModal()" class="w-full min-h-[46px] px-4 py-3 rounded-2xl bg-gradient-to-r from-rose-500 to-amber-500 hover:from-rose-600 hover:to-amber-600 text-white text-xs sm:text-sm font-extrabold shadow-sm flex items-center justify-center gap-2 transition active:scale-[0.99]">
+          <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+          <span>Добавить вручную: кормление, прикорм, сон, уход</span>
+        </button>
+
+        <div class="flex items-center justify-between pt-0.5">
           <h3 class="font-display font-bold text-sm text-slate-900 dark:text-slate-100">Быстрые отметки ухода</h3>
-          <button type="button" onclick="openManualLogModal()" class="text-xs font-bold text-rose-500 hover:text-rose-600 transition">+ Добавить вручную</button>
+          <span class="text-[11px] text-slate-400">В одно касание</span>
         </div>
         <div class="grid grid-cols-2 sm:grid-cols-5 gap-2">
           <button type="button" onclick="addQuickCareLog('diaper_wet', 'Мокрый подгузник')" class="p-2.5 rounded-2xl bg-warmgray/70 dark:bg-slate-800 hover:bg-sky-50 dark:hover:bg-sky-950/50 border border-stone-200/60 dark:border-slate-700 flex items-center gap-2 text-xs font-semibold transition">
@@ -925,7 +930,7 @@
           <div class="min-w-0">
             <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Фактическая дата</label>
             <div class="ru-date-box rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 focus-within:ring-2 focus-within:ring-rose-400">
-              <input type="date" id="vac-date-input" class="px-3 py-2 text-xs" />
+              <input type="date" id="vac-date-input" class="px-3.5 py-2 text-xs" />
               <div class="ru-date-overlay text-xs text-slate-800 dark:text-slate-100">
                 <span data-ru-date-text="vac-date-input">ДД.ММ.ГГГГ</span>
                 <svg class="w-3.5 h-3.5 text-slate-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="18" rx="3"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
@@ -934,18 +939,18 @@
           </div>
           <div class="min-w-0">
             <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Серия / кабинет</label>
-            <input type="text" id="vac-series-input" placeholder="Например: А-412" class="w-full min-w-0 px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs" />
+            <input type="text" id="vac-series-input" placeholder="Например: А-412" class="w-full min-w-0 px-3.5 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-rose-400" />
           </div>
         </div>
 
         <div>
           <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Название препарата / ФИО врача</label>
-          <input type="text" id="vac-drug-input" placeholder="Например: Пентаксим" class="w-full px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs" />
+          <input type="text" id="vac-drug-input" placeholder="Например: Пентаксим" class="w-full px-3.5 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-rose-400" />
         </div>
 
         <div>
           <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Заметка о самочувствии после визита</label>
-          <textarea id="vac-note-input" rows="2" placeholder="Температура в норме, перенёс хорошо..." class="w-full px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs"></textarea>
+          <textarea id="vac-note-input" rows="2" placeholder="Температура в норме, перенёс хорошо..." class="w-full px-3.5 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-rose-400"></textarea>
         </div>
 
         <button type="submit" class="w-full py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold transition">
@@ -955,42 +960,73 @@
     </div>
   </div>
 
-  <!-- ==================== МОДАЛЬНОЕ ОКНО: РУЧНОЕ ДОБАВЛЕНИЕ В ЖУРНАЛ ==================== -->
+  <!-- ==================== МОДАЛЬНОЕ ОКНО: РУЧНОЕ ДОБАВЛЕНИЕ / РЕДАКТИРОВАНИЕ В ЖУРНАЛЕ ==================== -->
   <div id="modal-manual-log" class="fixed inset-0 z-50 hidden items-end sm:items-center justify-center bg-slate-900/40 dark:bg-black/65 backdrop-blur-xs p-0 sm:p-4 overflow-y-auto">
     <div class="bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl max-w-md w-full p-5 sm:p-6 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:pb-6 shadow-xl border border-stone-100 dark:border-slate-800 space-y-4 my-auto animate-fade-in">
       <div class="flex items-center justify-between">
-        <h3 class="font-display font-extrabold text-lg text-slate-900 dark:text-slate-100">Добавить запись в журнал</h3>
+        <h3 id="modal-manual-log-title" class="font-display font-extrabold text-lg text-slate-900 dark:text-slate-100">Добавить запись в журнал</h3>
         <button type="button" onclick="closeModal('modal-manual-log')" class="p-1.5 rounded-xl hover:bg-stone-100 dark:hover:bg-slate-800 text-slate-400">
           <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
         </button>
       </div>
       <form onsubmit="saveManualLog(event)" class="space-y-3">
+        <input type="hidden" id="manual-log-id" value="" />
         <div>
-          <label class="block text-xs font-semibold mb-1">Тип события</label>
-          <select id="manual-log-type" class="w-full px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs font-semibold">
+          <label for="manual-log-type" class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Тип события</label>
+          <select id="manual-log-type" onchange="onManualLogTypeChange()" class="w-full px-3 py-2.5 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs font-semibold">
             <option value="feeding">Кормление (грудь / бутылочка)</option>
             <option value="feeding_solids">Прикорм</option>
             <option value="sleep">Сон</option>
             <option value="walk">Прогулка</option>
             <option value="diaper_wet">Мокрый подгузник</option>
             <option value="diaper_dirty">Грязный подгузник</option>
+            <option value="bath">Купание</option>
+            <option value="vitamin">Витамин D3</option>
+            <option value="pumping">Сцеживание</option>
           </select>
         </div>
+
+        <div id="manual-log-subtype-wrap">
+          <label for="manual-log-subtype" class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Способ кормления</label>
+          <select id="manual-log-subtype" class="w-full px-3 py-2.5 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs font-semibold">
+            <option value="left">Левая грудь</option>
+            <option value="right">Правая грудь</option>
+            <option value="bottle">Бутылочка (смесь / сцеж. молоко)</option>
+            <option value="general">Кормление (общее)</option>
+          </select>
+        </div>
+
+        <div id="manual-log-sleeptype-wrap" class="hidden">
+          <label for="manual-log-sleeptype" class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Тип сна</label>
+          <select id="manual-log-sleeptype" class="w-full px-3 py-2.5 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs font-semibold">
+            <option value="auto">Определить автоматически (19:00–07:00 — ночной)</option>
+            <option value="day">Дневной сон</option>
+            <option value="night">Ночной сон</option>
+          </select>
+        </div>
+
+        <div class="min-w-0">
+          <label for="manual-log-start" class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Время начала</label>
+          <input type="datetime-local" id="manual-log-start" required onchange="syncManualLogEndFromStartOrDuration()" class="w-full min-w-0 px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs" />
+        </div>
+
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div class="min-w-0">
-            <label class="block text-xs font-semibold mb-1">Время начала</label>
-            <input type="datetime-local" id="manual-log-start" required class="w-full min-w-0 px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs" />
+            <label for="manual-log-end" class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Время окончания</label>
+            <input type="datetime-local" id="manual-log-end" onchange="syncManualLogDurationFromEnd()" class="w-full min-w-0 px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs" />
           </div>
           <div class="min-w-0">
-            <label class="block text-xs font-semibold mb-1">Длительность (мин)</label>
-            <input type="number" id="manual-log-duration" min="0" max="900" value="20" class="w-full min-w-0 px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs" />
+            <label for="manual-log-duration" class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Длительность (мин)</label>
+            <input type="number" id="manual-log-duration" min="0" max="1440" value="20" oninput="syncManualLogEndFromStartOrDuration()" onchange="syncManualLogEndFromStartOrDuration()" class="w-full min-w-0 px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs" />
           </div>
         </div>
+        <p id="manual-log-time-warning" class="hidden text-[11px] font-semibold text-rose-500">Время окончания не может быть раньше времени начала</p>
+
         <div>
-          <label class="block text-xs font-semibold mb-1">Комментарий</label>
-          <input type="text" id="manual-log-note" placeholder="Например: Левая грудь, 15 мин" class="w-full px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs" />
+          <label for="manual-log-note" class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Комментарий / продукт</label>
+          <input type="text" id="manual-log-note" placeholder="Например: Левая грудь, 15 мин" class="w-full px-3 py-2.5 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs" />
         </div>
-        <button type="submit" class="w-full py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold transition">
+        <button type="submit" id="manual-log-submit-btn" class="w-full min-h-[44px] py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-xs sm:text-sm font-bold transition">
           Добавить в журнал
         </button>
       </form>
@@ -1030,11 +1066,7 @@
 
   <!-- ==================== ОСНОВНОЙ МОДУЛЬНЫЙ СКРИПТ ==================== -->
   <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-    import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-    // Немедленная регистрация всех обработчиков кнопок на window (функции всплывают до выполнения)
+    // Немедленная регистрация всех обработчиков кнопок на window (до любых сетевых запросов)
     Object.assign(window, {
       switchAuthMode,
       handleAuthSubmit,
@@ -1057,13 +1089,17 @@
       toggleTimer,
       addQuickCareLog,
       openManualLogModal,
+      openEditJournalLogModal,
+      onManualLogTypeChange,
+      syncManualLogEndFromStartOrDuration,
+      syncManualLogDurationFromEnd,
       saveManualLog,
       deleteJournalLog,
       setRhythmDays,
+      setVaccineFilter,
       openToothModal,
       toggleTempToothSymptom,
       saveToothRecord,
-      setVaccineFilter,
       openVaccineModal,
       saveVaccineRecord,
       setGrowthMetric,
@@ -1086,7 +1122,7 @@
       snoozeSmartNotif
     });
 
-    // Конфигурация Firebase (проект children-b0573)
+    // Конфигурация и неблокирующая инициализация Firebase (проект children-b0573)
     const firebaseConfig = {
       apiKey: "AIzaSyDZbqWMzauTBLFxlTFaeQYSiz0sSyWG7DA",
       authDomain: "children-b0573.firebaseapp.com",
@@ -1096,32 +1132,44 @@
       appId: "1:862463032073:web:4d2fdf0e1f573fac4e31d8"
     };
 
-    const appId = 'children-b0573';
+    const appId = firebaseConfig.projectId;
     let app = null;
     let auth = null;
     let db = null;
+    let fsDoc = null;
+    let fsGetDoc = null;
+    let fsSetDoc = null;
+    let fsOnSnapshot = null;
     let firebaseUser = null;
 
     const firebaseReadyPromise = (async () => {
       try {
-        app = initializeApp(firebaseConfig);
-        auth = getAuth(app);
-        db = getFirestore(app);
-        return new Promise((resolve) => {
-          const timeoutId = setTimeout(() => resolve(firebaseUser), 4000);
-          const unsub = onAuthStateChanged(auth, async (user) => {
+        const sdkLoad = Promise.all([
+          import("https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js"),
+          import("https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js"),
+          import("https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js")
+        ]);
+        const timeoutSdk = new Promise((_, reject) => setTimeout(() => reject(new Error('Firebase SDK timeout')), 4500));
+        const [appMod, authMod, fsMod] = await Promise.race([sdkLoad, timeoutSdk]);
+
+        fsDoc = fsMod.doc;
+        fsGetDoc = fsMod.getDoc;
+        fsSetDoc = fsMod.setDoc;
+        fsOnSnapshot = fsMod.onSnapshot;
+
+        app = appMod.initializeApp(firebaseConfig);
+        auth = authMod.getAuth(app);
+        db = fsMod.getFirestore(app);
+
+        await authMod.signInAnonymously(auth).catch((e) => {
+          console.warn('Anonymous sign-in warning:', e);
+        });
+
+        return await new Promise((resolve) => {
+          const timeoutId = setTimeout(() => resolve(auth.currentUser || null), 3500);
+          const unsub = authMod.onAuthStateChanged(auth, (user) => {
             if (user) {
               firebaseUser = user;
-              clearTimeout(timeoutId);
-              unsub();
-              resolve(user);
-            } else {
-              try {
-                const cred = await signInAnonymously(auth);
-                firebaseUser = cred.user;
-              } catch (err) {
-                console.warn('Firebase anonymous auth fallback:', err);
-              }
               clearTimeout(timeoutId);
               unsub();
               resolve(firebaseUser);
@@ -1522,6 +1570,40 @@
     let tempToothSymptoms = [];
     let activeTab = 'development';
     const inMemoryAccountsCache = new Map();
+    const LOCAL_ACCOUNTS_KEY = 'malysh_plus_accounts_v1';
+    const LOCAL_SESSION_KEY = 'malysh_plus_session_v1';
+
+    function readLocalAccounts() {
+      try {
+        const raw = localStorage.getItem(LOCAL_ACCOUNTS_KEY);
+        return raw ? JSON.parse(raw) : {};
+      } catch (_) {
+        return {};
+      }
+    }
+
+    function writeLocalAccount(login, passHash, stateObj) {
+      try {
+        const all = readLocalAccounts();
+        all[login] = { passHash, state: stateObj, updatedAt: Date.now() };
+        localStorage.setItem(LOCAL_ACCOUNTS_KEY, JSON.stringify(all));
+      } catch (_) {}
+    }
+
+    function readLocalSession() {
+      try {
+        return localStorage.getItem(LOCAL_SESSION_KEY) || null;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    function writeLocalSession(login) {
+      try {
+        if (login) localStorage.setItem(LOCAL_SESSION_KEY, login);
+        else localStorage.removeItem(LOCAL_SESSION_KEY);
+      } catch (_) {}
+    }
 
     async function hashPassword(str) {
       const normalized = String(str || '');
@@ -1876,36 +1958,40 @@
           const babyName = (document.getElementById('auth-baby-name')?.value || '').trim() || 'Малыш';
           const babyDob = document.getElementById('auth-baby-dob')?.value || getTodayIso();
 
-          if (db && firebaseUser) {
-            const accRef = doc(db, 'artifacts', appId, 'public', 'data', 'accounts', login);
-            const snap = await getDoc(accRef);
+          if (db && fsDoc && firebaseUser) {
+            const accRef = fsDoc(db, 'artifacts', appId, 'public', 'data', 'accounts', login);
+            const snap = await fsGetDoc(accRef);
             if (snap.exists()) {
               showAuthError('Этот логин уже занят. Выберите другой или войдите.');
               return;
             }
             const freshState = createDefaultState(babyName, babyDob);
-            await setDoc(accRef, {
+            await fsSetDoc(accRef, {
               login,
               passHash,
               state: JSON.stringify(freshState),
               updatedAt: Date.now()
             });
+            writeLocalAccount(login, passHash, freshState);
             await bindDeviceSession(login);
             enterAppWithAccount(login, passHash, freshState);
           } else {
-            if (inMemoryAccountsCache.has(login)) {
-              showAuthError('Этот логин уже занят в текущей сессии.');
+            const localAll = readLocalAccounts();
+            if (inMemoryAccountsCache.has(login) || localAll[login]) {
+              showAuthError('Этот логин уже занят. Выберите другой или войдите.');
               return;
             }
             const freshState = createDefaultState(babyName, babyDob);
             inMemoryAccountsCache.set(login, { passHash, state: freshState });
+            writeLocalAccount(login, passHash, freshState);
+            writeLocalSession(login);
             enterAppWithAccount(login, passHash, freshState);
           }
         } else {
           // Вход по логину
-          if (db && firebaseUser) {
-            const accRef = doc(db, 'artifacts', appId, 'public', 'data', 'accounts', login);
-            const snap = await getDoc(accRef);
+          if (db && fsDoc && firebaseUser) {
+            const accRef = fsDoc(db, 'artifacts', appId, 'public', 'data', 'accounts', login);
+            const snap = await fsGetDoc(accRef);
             if (!snap.exists()) {
               showAuthError('Аккаунт с таким логином не найден.');
               return;
@@ -1917,15 +2003,19 @@
             }
             const parsed = typeof data.state === 'string' ? JSON.parse(data.state) : (data.state || {});
             const merged = Object.assign(createDefaultState(), parsed);
+            writeLocalAccount(login, passHash, merged);
             await bindDeviceSession(login);
             enterAppWithAccount(login, passHash, merged);
           } else {
-            const cached = inMemoryAccountsCache.get(login);
+            const localAll = readLocalAccounts();
+            const cached = inMemoryAccountsCache.get(login) || localAll[login];
             if (!cached || cached.passHash !== passHash) {
               showAuthError('Нет связи с облаком или неверный логин/пароль.');
               return;
             }
-            enterAppWithAccount(login, passHash, cached.state);
+            const merged = Object.assign(createDefaultState(), cached.state || {});
+            writeLocalSession(login);
+            enterAppWithAccount(login, passHash, merged);
           }
         }
       } catch (err) {
@@ -1944,10 +2034,11 @@
     }
 
     async function bindDeviceSession(login) {
-      if (!db || !firebaseUser) return;
+      writeLocalSession(login);
+      if (!db || !fsDoc || !firebaseUser) return;
       try {
-        const sessRef = doc(db, 'artifacts', appId, 'users', firebaseUser.uid, 'session', 'current');
-        await setDoc(sessRef, { login, updatedAt: Date.now() });
+        const sessRef = fsDoc(db, 'artifacts', appId, 'users', firebaseUser.uid, 'session', 'current');
+        await fsSetDoc(sessRef, { login, updatedAt: Date.now() });
       } catch (_) {}
     }
 
@@ -1958,20 +2049,32 @@
       }
       bindRuDateInputs();
 
+      // Быстрое восстановление из локального кэша для мгновенного старта и офлайн-режима
+      const localLogin = readLocalSession();
+      if (localLogin) {
+        const localAll = readLocalAccounts();
+        if (localAll[localLogin]) {
+          const merged = Object.assign(createDefaultState(), localAll[localLogin].state || {});
+          enterAppWithAccount(localLogin, localAll[localLogin].passHash, merged);
+        }
+      }
+
       await firebaseReadyPromise;
-      if (!db || !firebaseUser) return;
+      if (!db || !fsDoc || !firebaseUser) return;
 
       try {
-        const sessRef = doc(db, 'artifacts', appId, 'users', firebaseUser.uid, 'session', 'current');
-        const sessSnap = await getDoc(sessRef);
+        const sessRef = fsDoc(db, 'artifacts', appId, 'users', firebaseUser.uid, 'session', 'current');
+        const sessSnap = await fsGetDoc(sessRef);
         if (sessSnap.exists() && sessSnap.data().login) {
           const savedLogin = sessSnap.data().login;
-          const accRef = doc(db, 'artifacts', appId, 'public', 'data', 'accounts', savedLogin);
-          const accSnap = await getDoc(accRef);
+          const accRef = fsDoc(db, 'artifacts', appId, 'public', 'data', 'accounts', savedLogin);
+          const accSnap = await fsGetDoc(accRef);
           if (accSnap.exists()) {
             const data = accSnap.data();
             const parsed = typeof data.state === 'string' ? JSON.parse(data.state) : (data.state || {});
             const merged = Object.assign(createDefaultState(), parsed);
+            writeLocalAccount(savedLogin, data.passHash, merged);
+            writeLocalSession(savedLogin);
             enterAppWithAccount(savedLogin, data.passHash, merged);
           }
         }
@@ -2006,16 +2109,17 @@
         unsubAccountSnapshot();
         unsubAccountSnapshot = null;
       }
-      if (!db || !firebaseUser) return;
+      if (!db || !fsDoc || !fsOnSnapshot || !firebaseUser) return;
 
-      const accRef = doc(db, 'artifacts', appId, 'public', 'data', 'accounts', login);
-      unsubAccountSnapshot = onSnapshot(accRef, (snap) => {
+      const accRef = fsDoc(db, 'artifacts', appId, 'public', 'data', 'accounts', login);
+      unsubAccountSnapshot = fsOnSnapshot(accRef, (snap) => {
         if (!snap.exists()) return;
         const data = snap.data();
         if (!data.state) return;
         const parsed = typeof data.state === 'string' ? JSON.parse(data.state) : data.state;
         isRemoteSyncApplying = true;
         appState = Object.assign(createDefaultState(), parsed);
+        writeLocalAccount(login, currentAccountPassHash, appState);
         renderAll();
         isRemoteSyncApplying = false;
       }, (err) => {
@@ -2025,12 +2129,14 @@
 
     async function saveState() {
       if (isRemoteSyncApplying || !currentAccountLogin) return;
+      const clonedState = JSON.parse(JSON.stringify(appState));
       inMemoryAccountsCache.set(currentAccountLogin, {
         passHash: currentAccountPassHash,
-        state: JSON.parse(JSON.stringify(appState))
+        state: clonedState
       });
+      writeLocalAccount(currentAccountLogin, currentAccountPassHash, clonedState);
 
-      if (!db || !firebaseUser) {
+      if (!db || !fsDoc || !firebaseUser) {
         pendingSyncState = true;
         updateNetworkStatusUI();
         return;
@@ -2039,8 +2145,8 @@
       pendingSyncState = true;
       updateNetworkStatusUI();
       try {
-        const accRef = doc(db, 'artifacts', appId, 'public', 'data', 'accounts', currentAccountLogin);
-        await setDoc(accRef, {
+        const accRef = fsDoc(db, 'artifacts', appId, 'public', 'data', 'accounts', currentAccountLogin);
+        await fsSetDoc(accRef, {
           login: currentAccountLogin,
           passHash: currentAccountPassHash,
           state: JSON.stringify(appState),
@@ -2059,10 +2165,11 @@
         unsubAccountSnapshot();
         unsubAccountSnapshot = null;
       }
-      if (db && firebaseUser) {
+      writeLocalSession(null);
+      if (db && fsDoc && firebaseUser) {
         try {
-          const sessRef = doc(db, 'artifacts', appId, 'users', firebaseUser.uid, 'session', 'current');
-          await setDoc(sessRef, { login: null, updatedAt: Date.now() });
+          const sessRef = fsDoc(db, 'artifacts', appId, 'users', firebaseUser.uid, 'session', 'current');
+          await fsSetDoc(sessRef, { login: null, updatedAt: Date.now() });
         } catch (_) {}
       }
       currentAccountLogin = null;
@@ -2707,62 +2814,268 @@
       showToast(`Добавлено: ${label}`);
     }
 
-    function openManualLogModal() {
-      const inp = document.getElementById('manual-log-start');
-      if (inp) {
-        const d = new Date();
-        d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
-        inp.value = d.toISOString().slice(0, 16);
+    function toLocalDatetimeInputValue(ms) {
+      const d = new Date(ms || Date.now());
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mm = String(d.getMinutes()).padStart(2, '0');
+      return `${y}-${m}-${day}T${hh}:${mm}`;
+    }
+
+    function onManualLogTypeChange() {
+      const type = document.getElementById('manual-log-type')?.value || 'feeding';
+      const subWrap = document.getElementById('manual-log-subtype-wrap');
+      const sleepWrap = document.getElementById('manual-log-sleeptype-wrap');
+      const noteInp = document.getElementById('manual-log-note');
+
+      if (subWrap) subWrap.classList.toggle('hidden', type !== 'feeding');
+      if (sleepWrap) sleepWrap.classList.toggle('hidden', type !== 'sleep');
+
+      if (noteInp) {
+        const placeholders = {
+          feeding: 'Например: 120 мл смеси или спокойное кормление',
+          feeding_solids: 'Например: Кабачок 80 г, пюре, без реакции',
+          sleep: 'Например: Уснул в кроватке без укачивания',
+          walk: 'Например: Прогулка в парке',
+          diaper_wet: 'Комментарий (необязательно)',
+          diaper_dirty: 'Комментарий (необязательно)',
+          bath: 'Например: Купание с ромашкой',
+          vitamin: 'Например: 2 капли (1000 МЕ)',
+          pumping: 'Например: 90 мл'
+        };
+        noteInp.placeholder = placeholders[type] || 'Комментарий';
       }
+    }
+
+    function validateManualLogTimeRange() {
+      const startVal = document.getElementById('manual-log-start')?.value;
+      const endVal = document.getElementById('manual-log-end')?.value;
+      const warnEl = document.getElementById('manual-log-time-warning');
+      if (!startVal || !endVal) {
+        if (warnEl) warnEl.classList.add('hidden');
+        return true;
+      }
+      const isValid = new Date(endVal).getTime() >= new Date(startVal).getTime();
+      if (warnEl) warnEl.classList.toggle('hidden', isValid);
+      return isValid;
+    }
+
+    function syncManualLogEndFromStartOrDuration() {
+      const startInp = document.getElementById('manual-log-start');
+      const endInp = document.getElementById('manual-log-end');
+      const durInp = document.getElementById('manual-log-duration');
+      if (!startInp || !endInp || !durInp || !startInp.value) return;
+
+      const startMs = new Date(startInp.value).getTime();
+      const durMin = Math.max(0, parseInt(durInp.value || '0', 10) || 0);
+      endInp.value = toLocalDatetimeInputValue(startMs + durMin * 60000);
+      validateManualLogTimeRange();
+    }
+
+    function syncManualLogDurationFromEnd() {
+      const startInp = document.getElementById('manual-log-start');
+      const endInp = document.getElementById('manual-log-end');
+      const durInp = document.getElementById('manual-log-duration');
+      if (!startInp || !endInp || !durInp || !startInp.value || !endInp.value) return;
+
+      const startMs = new Date(startInp.value).getTime();
+      const endMs = new Date(endInp.value).getTime();
+      if (endMs >= startMs) {
+        durInp.value = String(Math.round((endMs - startMs) / 60000));
+      } else {
+        durInp.value = '0';
+      }
+      validateManualLogTimeRange();
+    }
+
+    function openManualLogModal() {
+      const idInp = document.getElementById('manual-log-id');
+      const titleEl = document.getElementById('modal-manual-log-title');
+      const submitBtn = document.getElementById('manual-log-submit-btn');
+      const typeSel = document.getElementById('manual-log-type');
+      const subSel = document.getElementById('manual-log-subtype');
+      const sleepSel = document.getElementById('manual-log-sleeptype');
+      const startInp = document.getElementById('manual-log-start');
+      const endInp = document.getElementById('manual-log-end');
+      const durInp = document.getElementById('manual-log-duration');
+      const noteInp = document.getElementById('manual-log-note');
+
+      if (idInp) idInp.value = '';
+      if (titleEl) titleEl.textContent = 'Добавить запись в журнал';
+      if (submitBtn) submitBtn.textContent = 'Добавить в журнал';
+      if (typeSel) typeSel.value = 'feeding';
+      if (subSel) subSel.value = 'left';
+      if (sleepSel) sleepSel.value = 'auto';
+
+      const nowMs = Date.now();
+      const defaultDur = 20;
+      if (startInp) startInp.value = toLocalDatetimeInputValue(nowMs);
+      if (durInp) durInp.value = String(defaultDur);
+      if (endInp) endInp.value = toLocalDatetimeInputValue(nowMs + defaultDur * 60000);
+      if (noteInp) noteInp.value = '';
+
+      onManualLogTypeChange();
+      validateManualLogTimeRange();
+      openModal('modal-manual-log');
+    }
+
+    function openEditJournalLogModal(id) {
+      const log = (appState.journalLogs || []).find(l => l.id === id);
+      if (!log) return;
+
+      const idInp = document.getElementById('manual-log-id');
+      const titleEl = document.getElementById('modal-manual-log-title');
+      const submitBtn = document.getElementById('manual-log-submit-btn');
+      const typeSel = document.getElementById('manual-log-type');
+      const subSel = document.getElementById('manual-log-subtype');
+      const sleepSel = document.getElementById('manual-log-sleeptype');
+      const startInp = document.getElementById('manual-log-start');
+      const endInp = document.getElementById('manual-log-end');
+      const durInp = document.getElementById('manual-log-duration');
+      const noteInp = document.getElementById('manual-log-note');
+
+      if (idInp) idInp.value = log.id;
+      if (titleEl) titleEl.textContent = 'Редактировать запись';
+      if (submitBtn) submitBtn.textContent = 'Сохранить изменения';
+
+      const selectType = (log.type === 'feeding' && log.subtype === 'solids') ? 'feeding_solids' : (log.type || 'feeding');
+      if (typeSel) typeSel.value = selectType;
+
+      if (subSel) {
+        if (log.subtype === 'left' || log.subtype === 'right' || log.subtype === 'bottle') {
+          subSel.value = log.subtype;
+        } else {
+          subSel.value = 'general';
+        }
+      }
+
+      if (sleepSel) {
+        sleepSel.value = (log.sleepType === 'day' || log.sleepType === 'night') ? log.sleepType : 'auto';
+      }
+
+      const startMs = log.startTime || Date.now();
+      const dur = typeof log.durationMin === 'number'
+        ? log.durationMin
+        : (log.endTime && log.endTime > startMs ? Math.round((log.endTime - startMs) / 60000) : 0);
+      const endMs = log.endTime && log.endTime >= startMs ? log.endTime : (startMs + dur * 60000);
+
+      if (startInp) startInp.value = toLocalDatetimeInputValue(startMs);
+      if (endInp) endInp.value = toLocalDatetimeInputValue(endMs);
+      if (durInp) durInp.value = String(dur);
+
+      if (noteInp) {
+        if (log.solidsMeta && log.solidsMeta.product) {
+          noteInp.value = log.solidsMeta.product;
+        } else if (log.detail && !['Отмечено одним нажатием', 'Отмечено', 'Прикорм отмечен'].includes(log.detail) && !/^\d+\s*мин$/.test(log.detail)) {
+          noteInp.value = log.detail.replace(/^\d+\s*мин\s*•\s*/, '');
+        } else {
+          noteInp.value = '';
+        }
+      }
+
+      onManualLogTypeChange();
+      validateManualLogTimeRange();
       openModal('modal-manual-log');
     }
 
     function saveManualLog(e) {
       e.preventDefault();
+      if (!validateManualLogTimeRange()) {
+        showToast('Время окончания не может быть раньше времени начала');
+        return;
+      }
+
+      const editId = document.getElementById('manual-log-id')?.value || '';
+      const existingLog = editId ? (appState.journalLogs || []).find(l => l.id === editId) : null;
       const type = document.getElementById('manual-log-type')?.value || 'feeding';
       const startVal = document.getElementById('manual-log-start')?.value;
-      const dur = Math.max(0, parseInt(document.getElementById('manual-log-duration')?.value || '0', 10));
+      const endVal = document.getElementById('manual-log-end')?.value;
+      const durInput = Math.max(0, parseInt(document.getElementById('manual-log-duration')?.value || '0', 10) || 0);
       const note = (document.getElementById('manual-log-note')?.value || '').trim();
 
       const startMs = startVal ? new Date(startVal).getTime() : Date.now();
-      const endMs = startMs + dur * 60000;
+      const endMs = endVal ? new Date(endVal).getTime() : (startMs + durInput * 60000);
+      const dur = Math.max(0, Math.round((endMs - startMs) / 60000));
+
       const isSolidsManual = type === 'feeding_solids';
       const normalizedType = isSolidsManual ? 'feeding' : type;
-      const typeLabels = {
-        feeding: 'Кормление',
-        feeding_solids: note ? `Прикорм: ${note}` : 'Прикорм',
-        sleep: classifySleepTypeByTimestamp(startMs) === 'night' ? 'Ночной сон' : 'Дневной сон',
-        walk: 'Прогулка',
-        diaper_wet: 'Мокрый подгузник',
-        diaper_dirty: 'Грязный подгузник'
-      };
 
-      let subtype = isSolidsManual ? 'solids' : undefined;
-      if (type === 'feeding') {
-        const lowerNote = note.toLowerCase();
-        if (lowerNote.includes('лев')) subtype = 'left';
-        else if (lowerNote.includes('прав')) subtype = 'right';
+      let subtype = undefined;
+      let sleepType = undefined;
+      let label = 'Запись';
+      let detail = note ? (dur > 0 ? `${dur} мин • ${note}` : note) : (dur > 0 ? `${dur} мин` : 'Отмечено');
+      let solidsMeta = undefined;
+
+      if (isSolidsManual) {
+        subtype = 'solids';
+        const prodTitle = note || existingLog?.solidsMeta?.product || '';
+        label = prodTitle ? `Прикорм: ${prodTitle}` : 'Прикорм';
+        if (existingLog?.solidsMeta) {
+          solidsMeta = { ...existingLog.solidsMeta, product: prodTitle || existingLog.solidsMeta.product };
+        }
+        detail = prodTitle
+          ? (dur > 0 ? `${dur} мин • ${prodTitle}` : prodTitle)
+          : (dur > 0 ? `${dur} мин` : 'Прикорм отмечен');
+      } else if (type === 'feeding') {
+        const subSel = document.getElementById('manual-log-subtype')?.value || 'general';
+        if (subSel === 'left' || subSel === 'right' || subSel === 'bottle') {
+          subtype = subSel;
+        }
+        const feedLabels = {
+          left: 'Кормление (Левая грудь)',
+          right: 'Кормление (Правая грудь)',
+          bottle: 'Кормление (Бутылочка)',
+          general: 'Кормление'
+        };
+        label = feedLabels[subSel] || 'Кормление';
+      } else if (type === 'sleep') {
+        const sleepSel = document.getElementById('manual-log-sleeptype')?.value || 'auto';
+        sleepType = (sleepSel === 'day' || sleepSel === 'night') ? sleepSel : classifySleepTypeByTimestamp(startMs);
+        label = sleepType === 'night' ? 'Ночной сон' : 'Дневной сон';
+      } else {
+        const careLabels = {
+          walk: 'Прогулка',
+          diaper_wet: 'Мокрый подгузник',
+          diaper_dirty: 'Грязный подгузник',
+          bath: 'Купание',
+          vitamin: 'Витамин D3',
+          pumping: 'Сцеживание'
+        };
+        label = careLabels[type] || 'Запись';
       }
 
-      appState.journalLogs.unshift({
-        id: 'log_' + Date.now(),
+      const updatedEntry = {
+        id: existingLog ? existingLog.id : ('log_' + Date.now()),
         type: normalizedType,
         subtype,
-        sleepType: normalizedType === 'sleep' ? classifySleepTypeByTimestamp(startMs) : undefined,
-        label: typeLabels[type] || 'Запись',
-        detail: isSolidsManual ? (dur > 0 ? `${dur} мин` : 'Прикорм отмечен') : (note || (dur > 0 ? `${dur} мин` : 'Отмечено')),
+        sleepType,
+        solidsMeta,
+        label,
+        detail,
         startTime: startMs,
         endTime: endMs,
         durationMin: dur
-      });
+      };
+
+      if (existingLog) {
+        const idx = appState.journalLogs.findIndex(l => l.id === existingLog.id);
+        if (idx !== -1) appState.journalLogs[idx] = updatedEntry;
+      } else {
+        appState.journalLogs.unshift(updatedEntry);
+      }
 
       appState.journalLogs.sort((a, b) => b.startTime - a.startTime);
+      const idInp = document.getElementById('manual-log-id');
       const noteInp = document.getElementById('manual-log-note');
+      if (idInp) idInp.value = '';
       if (noteInp) noteInp.value = '';
       closeModal('modal-manual-log');
       renderJournalTab();
+      evaluateSmartNotifications(false);
       saveState();
-      showToast('Запись добавлена в журнал');
+      showToast(existingLog ? 'Запись обновлена' : 'Запись добавлена в журнал');
     }
 
     function deleteJournalLog(id) {
@@ -2933,6 +3246,12 @@
         const d = new Date(l.startTime);
         const dateStr = `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;
         const timeStr = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+        let timeRangeStr = `${dateStr} в ${timeStr}`;
+        if (l.endTime && l.endTime > l.startTime + 30000) {
+          const dEnd = new Date(l.endTime);
+          const endStr = `${String(dEnd.getHours()).padStart(2, '0')}:${String(dEnd.getMinutes()).padStart(2, '0')}`;
+          timeRangeStr = `${dateStr}, ${timeStr}–${endStr}`;
+        }
 
         let dotColor = 'bg-slate-400';
         if (l.type === 'feeding') dotColor = l.subtype === 'solids' ? 'bg-orange-500' : 'bg-rose-500';
@@ -2954,17 +3273,22 @@
 
         return `
           <div class="py-2.5 flex items-center justify-between gap-2">
-            <div class="flex items-start gap-2.5 min-w-0">
+            <div onclick="openEditJournalLogModal('${l.id}')" class="flex items-start gap-2.5 min-w-0 flex-1 cursor-pointer group">
               <span class="w-2.5 h-2.5 rounded-full ${dotColor} shrink-0 mt-1.5"></span>
               <div class="min-w-0">
-                <div class="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">${l.label}</div>
-                <div class="text-[11px] text-slate-500 dark:text-slate-400">${dateStr} в ${timeStr} • ${l.detail}</div>
+                <div class="text-xs font-bold text-slate-800 dark:text-slate-100 group-hover:text-rose-500 transition truncate">${l.label}</div>
+                <div class="text-[11px] text-slate-500 dark:text-slate-400">${timeRangeStr} • ${l.detail}</div>
                 ${solidsBadgesHtml}
               </div>
             </div>
-            <button type="button" onclick="deleteJournalLog('${l.id}')" aria-label="Удалить" class="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 transition shrink-0">
-              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
-            </button>
+            <div class="flex items-center gap-1 shrink-0">
+              <button type="button" onclick="openEditJournalLogModal('${l.id}')" aria-label="Редактировать" title="Редактировать запись" class="p-2 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition">
+                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+              </button>
+              <button type="button" onclick="deleteJournalLog('${l.id}')" aria-label="Удалить" title="Удалить запись" class="p-2 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition">
+                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
           </div>
         `;
       }).join('');
