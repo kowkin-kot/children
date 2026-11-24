@@ -239,6 +239,8 @@ async function initApp() {
     store.appState = mergeStateWithDefaults(localAccounts[savedLogin].state);
     enterMainApp();
     syncSavedSessionFromCloud(savedLogin);
+  } else if (Object.keys(localAccounts).length > 0) {
+    switchAuthMode('login');
   }
 
   setInterval(() => {

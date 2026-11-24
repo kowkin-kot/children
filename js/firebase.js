@@ -11,7 +11,15 @@ import {
   writeLocalSession,
   calculateBabyAge
 } from './state.js';
-import { hashPassword, normalizeLogin, getTodayIso, closeModal, showToast } from './utils.js';
+import {
+  hashPassword,
+  fnvHash,
+  normalizeLogin,
+  sanitizeForFirestore,
+  getTodayIso,
+  closeModal,
+  showToast
+} from './utils.js';
 
 let app = null;
 let auth = null;
@@ -22,46 +30,105 @@ let fsSetDoc = null;
 let fsOnSnapshot = null;
 let firebaseUser = null;
 let unsubAccountSnapshot = null;
+let activeInitPromise = null;
 
-export const firebaseReadyPromise = (async () => {
-  try {
-    const sdkLoad = Promise.all([
-      import("https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js"),
-      import("https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js"),
-      import("https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js")
-    ]);
-    const timeoutSdk = new Promise((_, reject) => setTimeout(() => reject(new Error('Firebase SDK timeout')), 4500));
-    const [appMod, authMod, fsMod] = await Promise.race([sdkLoad, timeoutSdk]);
-
-    fsDoc = fsMod.doc;
-    fsGetDoc = fsMod.getDoc;
-    fsSetDoc = fsMod.setDoc;
-    fsOnSnapshot = fsMod.onSnapshot;
-
-    app = appMod.initializeApp(firebaseConfig);
-    auth = authMod.getAuth(app);
-    db = fsMod.getFirestore(app);
-
-    await authMod.signInAnonymously(auth).catch((e) => {
-      console.warn('Anonymous sign-in warning:', e);
-    });
-
-    return await new Promise((resolve) => {
-      const timeoutId = setTimeout(() => resolve(auth.currentUser || null), 3500);
-      const unsub = authMod.onAuthStateChanged(auth, (user) => {
-        if (user) {
-          firebaseUser = user;
-          clearTimeout(timeoutId);
-          unsub();
-          resolve(firebaseUser);
-        }
-      });
-    });
-  } catch (e) {
-    console.warn('Firebase init offline fallback:', e);
-    return null;
+// Надёжная инициализация Firebase с возможностью повторного подключения при сбое или медленной сети
+export function ensureFirebaseReady() {
+  if (db && firebaseUser) {
+    return Promise.resolve(firebaseUser);
   }
-})();
+  if (activeInitPromise) {
+    return activeInitPromise;
+  }
+
+  activeInitPromise = (async () => {
+    try {
+      const sdkLoad = Promise.all([
+        import("https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js"),
+        import("https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js"),
+        import("https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js")
+      ]);
+      const timeoutSdk = new Promise((_, reject) => setTimeout(() => reject(new Error('Firebase SDK timeout')), 10000));
+      const [appMod, authMod, fsMod] = await Promise.race([sdkLoad, timeoutSdk]);
+
+      fsDoc = fsMod.doc;
+      fsGetDoc = fsMod.getDoc;
+      fsSetDoc = fsMod.setDoc;
+      fsOnSnapshot = fsMod.onSnapshot;
+
+      if (!app) {
+        const existingApps = typeof appMod.getApps === 'function' ? appMod.getApps() : [];
+        app = existingApps.length > 0 ? existingApps[0] : appMod.initializeApp(firebaseConfig);
+      }
+      if (!auth) auth = authMod.getAuth(app);
+      if (!db) db = fsMod.getFirestore(app);
+
+      if (auth.currentUser) {
+        firebaseUser = auth.currentUser;
+        return firebaseUser;
+      }
+
+      try {
+        const cred = await authMod.signInAnonymously(auth);
+        if (cred && cred.user) {
+          firebaseUser = cred.user;
+          return firebaseUser;
+        }
+      } catch (e) {
+        console.warn('Anonymous sign-in warning:', e);
+      }
+
+      return await new Promise((resolve) => {
+        const timeoutId = setTimeout(() => {
+          if (auth && auth.currentUser) {
+            firebaseUser = auth.currentUser;
+          }
+          resolve(firebaseUser);
+        }, 5000);
+        const unsub = authMod.onAuthStateChanged(auth, (user) => {
+          if (user) {
+            firebaseUser = user;
+            clearTimeout(timeoutId);
+            unsub();
+            resolve(firebaseUser);
+          }
+        });
+      });
+    } catch (e) {
+      console.warn('Firebase init offline fallback:', e);
+      return null;
+    } finally {
+      if (!db || !firebaseUser) {
+        activeInitPromise = null;
+      }
+    }
+  })();
+
+  return activeInitPromise;
+}
+
+// Запускаем прогрев Firebase в фоне при загрузке страницы
+export const firebaseReadyPromise = ensureFirebaseReady();
+
+async function verifyPasswordHash(storedHash, rawPassword, shaHash) {
+  if (!storedHash) return true;
+  if (storedHash === shaHash) return true;
+
+  // Поддержка старых аккаунтов, зарегистрированных без crypto.subtle (fnv_)
+  if (storedHash.startsWith('fnv_') && storedHash === fnvHash(rawPassword)) {
+    return true;
+  }
+
+  // Защита от случайных пробелов по краям при автозаполнении/вставке на смартфоне
+  const trimmed = String(rawPassword || '').trim();
+  if (trimmed && trimmed !== rawPassword) {
+    const trimmedSha = await hashPassword(trimmed);
+    if (storedHash === trimmedSha) return true;
+    if (storedHash.startsWith('fnv_') && storedHash === fnvHash(trimmed)) return true;
+  }
+
+  return false;
+}
 
 export async function saveAppState() {
   if (!store.currentAccountLogin) return;
@@ -71,26 +138,30 @@ export async function saveAppState() {
     state: store.appState
   });
 
-  if (!navigator.onLine || !db || !fsDoc || !fsSetDoc) {
+  if (!navigator.onLine) {
     store.pendingSyncState = true;
     hooks.updateNetworkStatusUI();
     return;
   }
 
   try {
-    await firebaseReadyPromise;
-    if (!db || !firebaseUser) {
+    await ensureFirebaseReady();
+    if (!db || !fsDoc || !fsSetDoc || !firebaseUser) {
       store.pendingSyncState = true;
       hooks.updateNetworkStatusUI();
       return;
     }
     const accRef = fsDoc(db, 'artifacts', appId, 'public', 'data', 'malysh_accounts', store.currentAccountLogin);
-    await fsSetDoc(accRef, {
+    const payload = {
       login: store.currentAccountLogin,
-      passHash: store.currentAccountPassHash,
-      state: store.appState,
+      state: sanitizeForFirestore(store.appState),
       updatedAt: Date.now()
-    }, { merge: true });
+    };
+    // Никогда не затираем существующий passHash пустой строкой
+    if (store.currentAccountPassHash) {
+      payload.passHash = store.currentAccountPassHash;
+    }
+    await fsSetDoc(accRef, payload, { merge: true });
     store.pendingSyncState = false;
     hooks.updateNetworkStatusUI();
   } catch (e) {
@@ -116,6 +187,9 @@ export function subscribeAccountRealtime(login) {
     unsubAccountSnapshot = fsOnSnapshot(accRef, (snap) => {
       if (!snap.exists()) return;
       const data = snap.data();
+      if (data && data.passHash && !store.currentAccountPassHash) {
+        store.currentAccountPassHash = data.passHash;
+      }
       if (data && data.state && !store.pendingSyncState) {
         store.isRemoteSyncApplying = true;
         store.appState = mergeStateWithDefaults(data.state);
@@ -130,12 +204,15 @@ export function subscribeAccountRealtime(login) {
 }
 
 export async function syncSavedSessionFromCloud(savedLogin) {
-  const user = await firebaseReadyPromise;
+  const user = await ensureFirebaseReady();
   if (!user || !db || !fsDoc || !fsGetDoc) return;
   try {
     const snap = await fsGetDoc(fsDoc(db, 'artifacts', appId, 'public', 'data', 'malysh_accounts', savedLogin));
     if (snap.exists() && !store.pendingSyncState) {
       const data = snap.data();
+      if (data && data.passHash && !store.currentAccountPassHash) {
+        store.currentAccountPassHash = data.passHash;
+      }
       if (data && data.state) {
         store.appState = mergeStateWithDefaults(data.state);
         writeLocalAccount(savedLogin, data.passHash || store.currentAccountPassHash, store.appState);
@@ -188,6 +265,40 @@ function showAuthError(msg) {
   errBox.classList.remove('hidden');
 }
 
+async function fetchAccountByLogin(loginCandidates) {
+  const localAccounts = readLocalAccounts();
+  let remoteReachable = false;
+
+  if (navigator.onLine) {
+    await ensureFirebaseReady();
+    if (db && fsDoc && fsGetDoc && firebaseUser) {
+      remoteReachable = true;
+      for (const candidate of loginCandidates) {
+        try {
+          const snap = await fsGetDoc(fsDoc(db, 'artifacts', appId, 'public', 'data', 'malysh_accounts', candidate));
+          if (snap.exists()) {
+            return { accountData: snap.data(), resolvedLogin: candidate, source: 'cloud', remoteReachable };
+          }
+        } catch (err) {
+          console.warn('Firestore account lookup error:', err);
+          remoteReachable = false;
+        }
+      }
+    }
+  }
+
+  for (const candidate of loginCandidates) {
+    if (localAccounts[candidate]) {
+      return { accountData: localAccounts[candidate], resolvedLogin: candidate, source: 'local', remoteReachable };
+    }
+    if (store.inMemoryAccountsCache.has(candidate)) {
+      return { accountData: store.inMemoryAccountsCache.get(candidate), resolvedLogin: candidate, source: 'memory', remoteReachable };
+    }
+  }
+
+  return { accountData: null, resolvedLogin: loginCandidates[0], source: 'none', remoteReachable };
+}
+
 export async function handleAuthSubmit(e) {
   if (e) e.preventDefault();
   const errBox = document.getElementById('auth-error-box');
@@ -233,7 +344,7 @@ export async function handleAuthSubmit(e) {
 
       let remoteExists = false;
       if (navigator.onLine) {
-        await firebaseReadyPromise;
+        await ensureFirebaseReady();
         if (db && fsDoc && fsGetDoc && firebaseUser) {
           try {
             const snap = await fsGetDoc(fsDoc(db, 'artifacts', appId, 'public', 'data', 'malysh_accounts', login));
@@ -243,7 +354,7 @@ export async function handleAuthSubmit(e) {
       }
 
       if (remoteExists || localAccounts[login]) {
-        showAuthError('Такой логин уже занят. Выберите другой логин или войдите.');
+        showAuthError('Такой логин уже занят. Выберите другой логин или переключитесь на «Войти по логину».');
         return;
       }
 
@@ -262,40 +373,45 @@ export async function handleAuthSubmit(e) {
       hooks.enterMainApp();
       showToast(`Добро пожаловать, ${babyName}!`);
     } else {
-      let accountData = null;
-      if (navigator.onLine) {
-        await firebaseReadyPromise;
-        if (db && fsDoc && fsGetDoc && firebaseUser) {
-          try {
-            const snap = await fsGetDoc(fsDoc(db, 'artifacts', appId, 'public', 'data', 'malysh_accounts', login));
-            if (snap.exists()) accountData = snap.data();
-          } catch (_) {}
-        }
-      }
-      if (!accountData && localAccounts[login]) {
-        accountData = localAccounts[login];
-      }
-      if (!accountData && store.inMemoryAccountsCache.has(login)) {
-        accountData = store.inMemoryAccountsCache.get(login);
-      }
+      // Кандидаты логина: основной (без @) и старый вариант (если ранее @ заменялось на _)
+      const legacyLogin = String(loginRaw || '').trim().toLowerCase().replace(/[^a-z0-9а-яё._-]/gi, '_');
+      const loginCandidates = legacyLogin && legacyLogin !== login ? [login, legacyLogin] : [login];
+
+      const { accountData, resolvedLogin, remoteReachable } = await fetchAccountByLogin(loginCandidates);
 
       if (!accountData) {
-        showAuthError('Аккаунт с таким логином не найден.');
+        if (navigator.onLine && !remoteReachable) {
+          showAuthError('Не удалось подключиться к облачной базе. Проверьте интернет и попробуйте ещё раз.');
+        } else {
+          showAuthError('Аккаунт с таким логином не найден.');
+        }
         return;
       }
-      if (accountData.passHash && accountData.passHash !== passHash) {
+
+      const isPasswordValid = await verifyPasswordHash(accountData.passHash, passRaw, passHash);
+      if (!isPasswordValid) {
         showAuthError('Неверный пароль.');
         return;
       }
 
-      store.currentAccountLogin = login;
-      store.currentAccountPassHash = passHash;
+      // Если у аккаунта был старый fnv_-хэш, прозрачно обновляем его до SHA-256
+      const effectivePassHash = (accountData.passHash && !accountData.passHash.startsWith('fnv_'))
+        ? accountData.passHash
+        : passHash;
+
+      store.currentAccountLogin = resolvedLogin;
+      store.currentAccountPassHash = effectivePassHash;
       store.appState = mergeStateWithDefaults(accountData.state);
-      writeLocalSession(login);
-      writeLocalAccount(login, passHash, store.appState);
-      subscribeAccountRealtime(login);
+      writeLocalSession(resolvedLogin);
+      writeLocalAccount(resolvedLogin, effectivePassHash, store.appState);
+
+      if (accountData.passHash && accountData.passHash.startsWith('fnv_')) {
+        await saveAppState();
+      }
+
+      subscribeAccountRealtime(resolvedLogin);
       hooks.enterMainApp();
-      showToast(`С возвращением, @${login}!`);
+      showToast(`С возвращением, @${resolvedLogin}!`);
     }
   } finally {
     if (submitBtn) {
@@ -310,10 +426,21 @@ export function logoutAccount() {
     try { unsubAccountSnapshot(); } catch (_) {}
     unsubAccountSnapshot = null;
   }
+  const previousLogin = store.currentAccountLogin || '';
   store.currentAccountLogin = null;
   store.currentAccountPassHash = null;
   writeLocalSession(null);
   closeModal('modal-profile');
+
+  // При выходе сразу переключаем форму на «Войти по логину» и очищаем поля пароля
+  switchAuthMode('login');
+  const loginInp = document.getElementById('auth-login-input');
+  const passInp = document.getElementById('auth-pass-input');
+  const confirmInp = document.getElementById('auth-pass-confirm');
+  if (loginInp && previousLogin) loginInp.value = previousLogin;
+  if (passInp) passInp.value = '';
+  if (confirmInp) confirmInp.value = '';
+
   const gate = document.getElementById('auth-gate-screen');
   if (gate) gate.classList.remove('hidden');
   hooks.renderPwaInstallUI();
