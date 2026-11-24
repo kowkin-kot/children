@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="Малыш+" />
   <link rel="manifest" id="pwa-manifest-link" href="" />
-  <link rel="apple-touch-icon" id="pwa-apple-icon" sizes="180x180" href="https://kowkin-kot.github.io/children/app_icon.svg" />
+  <link rel="apple-touch-icon" id="pwa-apple-icon" sizes="180x180" href="https://kowkin-kot.github.io/children/app_icon.png" />
   <link rel="icon" id="pwa-favicon" type="image/svg+xml" href="https://kowkin-kot.github.io/children/app_icon.svg" />
   <!-- Шрифты Inter и Nunito -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -1056,9 +1056,14 @@
         Установите <strong>Малыш+</strong> как отдельное приложение, чтобы запускать его одним касанием с рабочего стола и пользоваться без интернета:
       </p>
       <div id="pwa-manual-steps" class="space-y-2.5 text-xs text-slate-700 dark:text-slate-200"></div>
-      <button type="button" onclick="closeModal('modal-pwa-install')" class="w-full min-h-[44px] py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-sm font-bold transition">
-        Понятно
-      </button>
+      <div class="flex flex-col gap-2">
+        <button type="button" onclick="downloadAppIconPng()" class="w-full min-h-[40px] py-2 px-3 rounded-xl bg-warmgray dark:bg-slate-800 hover:bg-stone-200/80 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-stone-200 dark:border-slate-700 text-xs font-bold transition">
+          Скачать PNG-иконку (app_icon.png) для GitHub / iPhone
+        </button>
+        <button type="button" onclick="closeModal('modal-pwa-install')" class="w-full min-h-[44px] py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-sm font-bold transition">
+          Понятно
+        </button>
+      </div>
     </div>
   </div>
 
@@ -1117,6 +1122,7 @@
       setThemeMode,
       triggerPwaInstall,
       dismissPwaBanner,
+      downloadAppIconPng,
       logoutAccount,
       toggleNotifSetting,
       requestBrowserPushPermission,
@@ -1691,33 +1697,136 @@
     // 3. ОФЛАЙН-СТАТУС, PWA МАНИФЕСТ И ИКОНКА ПО ССЫЛКЕ
     // =========================================================================
     const APP_ICON_URL = 'https://kowkin-kot.github.io/children/app_icon.svg';
+    const APP_ICON_PNG_URL = 'https://kowkin-kot.github.io/children/app_icon.png';
     let deferredInstallPrompt = null;
     let pwaBannerDismissed = false;
     let lastManifestBlobUrl = '';
+    let cachedPng512DataUrl = '';
+
+    function checkImageLoads(url, timeoutMs = 3000) {
+      return new Promise((resolve) => {
+        const img = new Image();
+        let done = false;
+        const finish = (ok) => {
+          if (done) return;
+          done = true;
+          clearTimeout(timer);
+          resolve(ok);
+        };
+        const timer = setTimeout(() => finish(false), timeoutMs);
+        img.onload = () => finish(true);
+        img.onerror = () => finish(false);
+        img.src = url;
+      });
+    }
+
+    function renderSvgTextToPngDataUrl(svgText, size) {
+      return new Promise((resolve, reject) => {
+        try {
+          // Гарантируем наличие width/height на корневом <svg> для корректной отрисовки в Safari
+          let normalizedSvg = svgText.replace(/<svg\b([^>]*)>/i, (match, attrs) => {
+            const cleaned = attrs
+              .replace(/\swidth\s*=\s*["'][^"']*["']/gi, '')
+              .replace(/\sheight\s*=\s*["'][^"']*["']/gi, '');
+            return `<svg${cleaned} width="${size}" height="${size}">`;
+          });
+
+          const img = new Image();
+          img.onload = () => {
+            try {
+              const canvas = document.createElement('canvas');
+              canvas.width = size;
+              canvas.height = size;
+              const ctx = canvas.getContext('2d');
+              // Белый фон предотвращает чёрные углы на экране «Домой» в iOS
+              ctx.fillStyle = '#FFFFFF';
+              ctx.fillRect(0, 0, size, size);
+              ctx.drawImage(img, 0, 0, size, size);
+              resolve(canvas.toDataURL('image/png'));
+            } catch (err) {
+              reject(err);
+            }
+          };
+          img.onerror = (err) => reject(err);
+          img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(normalizedSvg);
+        } catch (err) {
+          reject(err);
+        }
+      });
+    }
+
+    function applyAppleTouchIconHref(href) {
+      try {
+        const existing = document.getElementById('pwa-apple-icon');
+        if (existing && existing.parentNode) {
+          existing.parentNode.removeChild(existing);
+        }
+        const link = document.createElement('link');
+        link.id = 'pwa-apple-icon';
+        link.rel = 'apple-touch-icon';
+        link.sizes = '180x180';
+        link.href = href;
+        document.head.appendChild(link);
+      } catch (_) {}
+    }
 
     async function setupPwaManifestAndIcons() {
       try {
         const favicon = document.getElementById('pwa-favicon');
-        const appleIcon = document.getElementById('pwa-apple-icon');
         const modalPreview = document.getElementById('pwa-modal-icon-preview');
         if (favicon) favicon.href = APP_ICON_URL;
-        if (appleIcon) appleIcon.href = APP_ICON_URL;
         if (modalPreview) modalPreview.src = APP_ICON_URL;
+
+        const baseUrl = new URL('./', window.location.href).href;
+        const manifestIcons = [];
+
+        // 1. Сначала проверяем, загружен ли статический PNG рядом с SVG (идеально для iOS Safari)
+        const hasStaticPng = await checkImageLoads(APP_ICON_PNG_URL, 2500);
+        if (hasStaticPng) {
+          applyAppleTouchIconHref(APP_ICON_PNG_URL);
+          manifestIcons.push(
+            { src: APP_ICON_PNG_URL, sizes: '192x192', type: 'image/png', purpose: 'any' },
+            { src: APP_ICON_PNG_URL, sizes: '512x512', type: 'image/png', purpose: 'any maskable' }
+          );
+        } else {
+          // 2. Иначе конвертируем app_icon.svg в PNG (180x180, 192x192, 512x512) прямо в браузере
+          try {
+            const resp = await fetch(APP_ICON_URL, { mode: 'cors', cache: 'force-cache' });
+            if (resp.ok) {
+              const svgText = await resp.text();
+              const [png180, png192, png512] = await Promise.all([
+                renderSvgTextToPngDataUrl(svgText, 180),
+                renderSvgTextToPngDataUrl(svgText, 192),
+                renderSvgTextToPngDataUrl(svgText, 512)
+              ]);
+              cachedPng512DataUrl = png512;
+              applyAppleTouchIconHref(png180);
+              if (modalPreview) modalPreview.src = png180;
+              manifestIcons.push(
+                { src: png192, sizes: '192x192', type: 'image/png', purpose: 'any' },
+                { src: png512, sizes: '512x512', type: 'image/png', purpose: 'any maskable' }
+              );
+            }
+          } catch (convErr) {
+            console.warn('SVG to PNG conversion fallback:', convErr);
+          }
+        }
+
+        manifestIcons.push({ src: APP_ICON_URL, sizes: 'any', type: 'image/svg+xml', purpose: 'any' });
 
         const manifestObj = {
           name: 'Малыш+ — Календарь развития 0–5 лет',
           short_name: 'Малыш+',
           description: 'Календарь развития ребёнка от 0 до 5 лет, журнал кормлений, сна и здоровья',
-          start_url: './',
-          scope: './',
+          start_url: baseUrl,
+          scope: baseUrl,
           display: 'standalone',
           orientation: 'portrait',
           background_color: '#FDFBF7',
           theme_color: '#FDFBF7',
-          icons: [
-            { src: APP_ICON_URL, sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' }
-          ]
+          icons: manifestIcons
         };
+
         const blob = new Blob([JSON.stringify(manifestObj)], { type: 'application/manifest+json' });
         if (lastManifestBlobUrl) URL.revokeObjectURL(lastManifestBlobUrl);
         lastManifestBlobUrl = URL.createObjectURL(blob);
@@ -1725,6 +1834,28 @@
         if (manifestLink) manifestLink.href = lastManifestBlobUrl;
       } catch (e) {
         console.warn('PWA manifest setup warning:', e);
+      }
+    }
+
+    async function downloadAppIconPng() {
+      try {
+        let dataUrl = cachedPng512DataUrl;
+        if (!dataUrl) {
+          const resp = await fetch(APP_ICON_URL, { mode: 'cors' });
+          if (!resp.ok) throw new Error('Не удалось загрузить SVG');
+          const svgText = await resp.text();
+          dataUrl = await renderSvgTextToPngDataUrl(svgText, 512);
+          cachedPng512DataUrl = dataUrl;
+        }
+        const a = document.createElement('a');
+        a.href = dataUrl;
+        a.download = 'app_icon.png';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        showToast('Файл app_icon.png скачан — загрузите его в репозиторий рядом с app_icon.svg');
+      } catch (_) {
+        showToast('Не удалось сформировать PNG. Проверьте доступность app_icon.svg');
       }
     }
 
