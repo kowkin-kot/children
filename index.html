@@ -230,7 +230,7 @@
         <button type="button" data-tab="development" onclick="switchTab('development')" class="desktop-nav-btn px-3 py-1.5 rounded-xl text-xs font-bold transition">Развитие</button>
         <button type="button" data-tab="journal" onclick="switchTab('journal')" class="desktop-nav-btn px-3 py-1.5 rounded-xl text-xs font-bold transition">Журнал</button>
         <button type="button" data-tab="health" onclick="switchTab('health')" class="desktop-nav-btn px-3 py-1.5 rounded-xl text-xs font-bold transition">Здоровье</button>
-        <button type="button" data-tab="growth" onclick="switchTab('growth')" class="desktop-nav-btn px-3 py-1.5 rounded-xl text-xs font-bold transition">Рост и вес</button>
+        <button type="button" data-tab="growth" onclick="switchTab('growth')" class="desktop-nav-btn px-3 py-1.5 rounded-xl text-xs font-bold transition">Замеры</button>
         <button type="button" data-tab="symptoms" onclick="switchTab('symptoms')" class="desktop-nav-btn px-3 py-1.5 rounded-xl text-xs font-bold transition">Советы</button>
         <button type="button" data-tab="diary" onclick="switchTab('diary')" class="desktop-nav-btn px-3 py-1.5 rounded-xl text-xs font-bold transition">Дневник</button>
       </nav>
@@ -276,7 +276,7 @@
       </button>
       <button type="button" data-tab="growth" onclick="switchTab('growth')" class="mobile-nav-btn min-h-[60px] min-w-[56px] flex-1 shrink-0 flex flex-col items-center justify-center px-2 py-2 rounded-2xl text-[11px] leading-tight font-bold transition">
         <svg class="w-6 h-6 mb-1 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
-        <span class="whitespace-nowrap">ВОЗ</span>
+        <span class="whitespace-nowrap">Замеры</span>
       </button>
       <button type="button" data-tab="symptoms" onclick="switchTab('symptoms')" class="mobile-nav-btn min-h-[60px] min-w-[60px] flex-1 shrink-0 flex flex-col items-center justify-center px-2 py-2 rounded-2xl text-[11px] leading-tight font-bold transition">
         <svg class="w-6 h-6 mb-1 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
@@ -542,12 +542,12 @@
       <div class="bg-white dark:bg-slate-900 rounded-3xl border border-stone-200/70 dark:border-slate-800 p-4 sm:p-5 space-y-3 shadow-2xs">
         <div class="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h3 class="font-display font-bold text-sm sm:text-base text-slate-900 dark:text-slate-100">Аналитика суточного ритма (24 ч)</h3>
-            <p class="text-xs text-slate-500 dark:text-slate-400">Визуальная лента сна, кормлений и прогулок за выбранный период</p>
+            <h3 class="font-display font-bold text-sm sm:text-base text-slate-900 dark:text-slate-100">Аналитика суточного ритма</h3>
+            <p class="text-[11px] text-slate-500 dark:text-slate-400">24-часовая карта сна, кормлений и прогулок</p>
           </div>
           <div class="flex items-center gap-1 bg-warmgray dark:bg-slate-800 p-1 rounded-xl">
-            <button type="button" onclick="setRhythmDays(7)" id="rhythm-btn-7" class="px-2.5 py-1 rounded-lg text-xs font-bold bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-2xs transition">7 дней</button>
-            <button type="button" onclick="setRhythmDays(14)" id="rhythm-btn-14" class="px-2.5 py-1 rounded-lg text-xs font-bold text-slate-500 dark:text-slate-400 transition">14 дней</button>
+            <button type="button" id="rhythm-btn-7" onclick="setRhythmDays(7)" class="px-2.5 py-1 rounded-lg text-xs font-bold bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-2xs transition">7 дней</button>
+            <button type="button" id="rhythm-btn-14" onclick="setRhythmDays(14)" class="px-2.5 py-1 rounded-lg text-xs font-bold text-slate-500 dark:text-slate-400 transition">14 дней</button>
           </div>
         </div>
         <div id="rhythm-analytics-container">
@@ -555,10 +555,24 @@
         </div>
       </div>
 
-      <!-- Сводка за сегодня и лента событий -->
+      <!-- Сводка за выбранный день и лента событий -->
       <div class="bg-white dark:bg-slate-900 rounded-3xl border border-stone-200/70 dark:border-slate-800 p-4 sm:p-5 space-y-3 shadow-2xs">
-        <div class="flex flex-wrap items-center justify-between gap-2">
-          <h3 class="font-display font-bold text-sm sm:text-base text-slate-900 dark:text-slate-100">Записи за сегодня</h3>
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+          <div class="flex items-center justify-between sm:justify-start gap-2">
+            <button type="button" onclick="shiftJournalDate(-1)" aria-label="Предыдущий день" class="w-9 h-9 rounded-xl bg-warmgray dark:bg-slate-800 hover:bg-stone-200/80 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 flex items-center justify-center shrink-0 transition">
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+            </button>
+            <div class="text-center sm:text-left min-w-0">
+              <h3 id="journal-day-title" class="font-display font-bold text-sm sm:text-base text-slate-900 dark:text-slate-100 leading-tight">Записи за сегодня</h3>
+              <div id="journal-day-subtitle" class="text-[11px] text-slate-400 font-medium"></div>
+            </div>
+            <button type="button" id="journal-next-day-btn" onclick="shiftJournalDate(1)" aria-label="Следующий день" class="w-9 h-9 rounded-xl bg-warmgray dark:bg-slate-800 hover:bg-stone-200/80 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 disabled:opacity-35 disabled:pointer-events-none flex items-center justify-center shrink-0 transition">
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+            </button>
+            <button type="button" id="journal-today-btn" onclick="resetJournalDateToToday()" class="hidden px-2.5 py-1.5 rounded-xl bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-300 text-[11px] font-bold hover:bg-rose-100 transition shrink-0">
+              Сегодня
+            </button>
+          </div>
           <div id="journal-today-stats" class="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400"></div>
         </div>
         <div id="journal-logs-list" class="divide-y divide-stone-100 dark:divide-slate-800">
@@ -1010,10 +1024,21 @@
 
         <div class="min-w-0">
           <label for="manual-log-start" class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Время начала</label>
-          <input type="datetime-local" id="manual-log-start" required onchange="syncManualLogEndFromStartOrDuration()" class="w-full min-w-0 px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs" />
+          <input type="datetime-local" id="manual-log-start" required oninput="syncManualLogEndFromStartOrDuration()" onchange="syncManualLogEndFromStartOrDuration()" class="w-full min-w-0 px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs" />
         </div>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div id="manual-log-live-wrap" class="p-3 rounded-2xl bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200/70 dark:border-indigo-800/60 space-y-1.5">
+          <label class="flex items-center justify-between gap-2.5 cursor-pointer">
+            <div class="min-w-0">
+              <div class="text-xs font-bold text-indigo-900 dark:text-indigo-100">Включить таймер с времени начала</div>
+              <div class="text-[11px] text-indigo-700/80 dark:text-indigo-300/80">Событие ещё идёт — отсчёт пойдёт от указанного времени</div>
+            </div>
+            <input type="checkbox" id="manual-log-live-timer" onchange="onManualLogLiveToggle()" class="w-4 h-4 accent-indigo-500 shrink-0" />
+          </label>
+          <p id="manual-log-live-preview" class="hidden text-[11px] font-semibold text-indigo-600 dark:text-indigo-300"></p>
+        </div>
+
+        <div id="manual-log-end-duration-wrap" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div class="min-w-0">
             <label for="manual-log-end" class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Время окончания</label>
             <input type="datetime-local" id="manual-log-end" onchange="syncManualLogDurationFromEnd()" class="w-full min-w-0 px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs" />
@@ -1025,7 +1050,7 @@
         </div>
         <p id="manual-log-time-warning" class="hidden text-[11px] font-semibold text-rose-500">Время окончания не может быть раньше времени начала</p>
 
-        <div>
+        <div id="manual-log-note-wrap">
           <label for="manual-log-note" class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Комментарий / продукт</label>
           <input type="text" id="manual-log-note" placeholder="Например: Левая грудь, 15 мин" class="w-full px-3 py-2.5 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs" />
         </div>
@@ -1099,10 +1124,13 @@
       openManualLogModal,
       openEditJournalLogModal,
       onManualLogTypeChange,
+      onManualLogLiveToggle,
       syncManualLogEndFromStartOrDuration,
       syncManualLogDurationFromEnd,
       saveManualLog,
       deleteJournalLog,
+      shiftJournalDate,
+      resetJournalDateToToday,
       setRhythmDays,
       setVaccineFilter,
       openToothModal,
@@ -1610,6 +1638,7 @@
     let tempToothSymptoms = [];
     let activeTab = 'development';
     let sleepDebtExpanded = false;
+    let selectedJournalDateIso = getTodayIso();
     const inMemoryAccountsCache = new Map();
     const LOCAL_ACCOUNTS_KEY = 'malysh_plus_accounts_v1';
     const LOCAL_SESSION_KEY = 'malysh_plus_session_v1';
@@ -2890,6 +2919,7 @@
       if (amtInp) amtInp.value = '';
       if (noteInp) noteInp.value = '';
 
+      selectedJournalDateIso = getTodayIso();
       saveAppState();
       renderJournalTab();
       renderHereAndNowWidget();
@@ -2897,7 +2927,7 @@
     }
 
     function detectSleepTypeByHour(ts) {
-      const h = new Date(ts).getHours();
+      const h = new Date(ts || Date.now()).getHours();
       return (h >= 19 || h < 7) ? 'night' : 'day';
     }
 
@@ -2923,6 +2953,7 @@
         saveAppState();
         renderJournalTimersUI();
         renderHereAndNowWidget();
+        evaluateSmartNotifications();
         showToast(kind === 'feeding' ? 'Таймер кормления запущен' : kind === 'sleep' ? 'Таймер сна запущен' : 'Таймер прогулки запущен');
       } else {
         const startTs = timer.startTime || now;
@@ -2980,9 +3011,11 @@
           });
         }
 
+        selectedJournalDateIso = getTodayIso();
         saveAppState();
         renderJournalTab();
         renderHereAndNowWidget();
+        evaluateSmartNotifications();
         showToast('Запись сохранена в журнал');
       }
     }
@@ -2997,6 +3030,7 @@
         endTime: now,
         durationMin: 0
       });
+      selectedJournalDateIso = getTodayIso();
       saveAppState();
       renderJournalTab();
       renderHereAndNowWidget();
@@ -3014,6 +3048,7 @@
       const endInp = document.getElementById('manual-log-end');
       const durInp = document.getElementById('manual-log-duration');
       const noteInp = document.getElementById('manual-log-note');
+      const liveChk = document.getElementById('manual-log-live-timer');
       const warnEl = document.getElementById('manual-log-time-warning');
 
       if (idInp) idInp.value = '';
@@ -3023,6 +3058,7 @@
       if (subSel) subSel.value = appState.timers?.feeding?.subtype === 'right' ? 'right' : 'left';
       if (sleepSel) sleepSel.value = 'auto';
       if (noteInp) noteInp.value = '';
+      if (liveChk) liveChk.checked = false;
       if (warnEl) warnEl.classList.add('hidden');
 
       const now = Date.now();
@@ -3049,6 +3085,7 @@
       const endInp = document.getElementById('manual-log-end');
       const durInp = document.getElementById('manual-log-duration');
       const noteInp = document.getElementById('manual-log-note');
+      const liveChk = document.getElementById('manual-log-live-timer');
       const warnEl = document.getElementById('manual-log-time-warning');
 
       if (idInp) idInp.value = log.id;
@@ -3057,6 +3094,7 @@
       if (typeSel) typeSel.value = log.type || 'feeding';
       if (subSel) subSel.value = log.subtype || 'general';
       if (sleepSel) sleepSel.value = log.sleepType || 'auto';
+      if (liveChk) liveChk.checked = false;
       if (warnEl) warnEl.classList.add('hidden');
 
       const sTs = log.startTime || Date.now();
@@ -3073,13 +3111,78 @@
 
     function onManualLogTypeChange() {
       const typeVal = document.getElementById('manual-log-type')?.value || 'feeding';
+      const isEditing = Boolean(document.getElementById('manual-log-id')?.value);
+      const isTimerSupported = ['feeding', 'feeding_solids', 'sleep', 'walk'].includes(typeVal);
       const subWrap = document.getElementById('manual-log-subtype-wrap');
       const sleepWrap = document.getElementById('manual-log-sleeptype-wrap');
+      const liveWrap = document.getElementById('manual-log-live-wrap');
+      const liveChk = document.getElementById('manual-log-live-timer');
+
       if (subWrap) subWrap.classList.toggle('hidden', typeVal !== 'feeding');
       if (sleepWrap) sleepWrap.classList.toggle('hidden', typeVal !== 'sleep');
+      if (liveWrap) liveWrap.classList.toggle('hidden', isEditing || !isTimerSupported);
+      if ((isEditing || !isTimerSupported) && liveChk) liveChk.checked = false;
+
+      onManualLogLiveToggle();
+    }
+
+    function onManualLogLiveToggle() {
+      const isEditing = Boolean(document.getElementById('manual-log-id')?.value);
+      const isLive = !isEditing && Boolean(document.getElementById('manual-log-live-timer')?.checked);
+      const endDurWrap = document.getElementById('manual-log-end-duration-wrap');
+      const noteWrap = document.getElementById('manual-log-note-wrap');
+      const previewEl = document.getElementById('manual-log-live-preview');
+      const warnEl = document.getElementById('manual-log-time-warning');
+      const submitBtn = document.getElementById('manual-log-submit-btn');
+
+      if (endDurWrap) endDurWrap.classList.toggle('hidden', isLive);
+      if (noteWrap) noteWrap.classList.toggle('hidden', isLive);
+
+      if (submitBtn) {
+        if (isLive) {
+          submitBtn.textContent = 'Запустить таймер с этого времени';
+          submitBtn.className = 'w-full min-h-[44px] py-2.5 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white text-xs sm:text-sm font-bold transition';
+        } else {
+          submitBtn.textContent = isEditing ? 'Сохранить изменения' : 'Добавить в журнал';
+          submitBtn.className = 'w-full min-h-[44px] py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-xs sm:text-sm font-bold transition';
+        }
+      }
+
+      if (!isLive) {
+        if (previewEl) previewEl.classList.add('hidden');
+        if (warnEl) warnEl.classList.add('hidden');
+        return;
+      }
+
+      const startVal = document.getElementById('manual-log-start')?.value;
+      const sTs = startVal ? new Date(startVal).getTime() : Date.now();
+      const now = Date.now();
+
+      if (Number.isNaN(sTs)) return;
+      if (sTs > now + 60000) {
+        if (previewEl) previewEl.classList.add('hidden');
+        if (warnEl) {
+          warnEl.textContent = 'Время начала для таймера не может быть в будущем';
+          warnEl.classList.remove('hidden');
+        }
+      } else {
+        if (warnEl) warnEl.classList.add('hidden');
+        if (previewEl) {
+          const elapsedMin = Math.max(0, Math.round((now - sTs) / 60000));
+          previewEl.textContent = elapsedMin > 0
+            ? `Отсчёт пойдёт с ${formatClockHHMM(sTs)} (уже прошло ${formatMinutesHuman(elapsedMin)})`
+            : `Отсчёт начнётся с ${formatClockHHMM(sTs)}`;
+          previewEl.classList.remove('hidden');
+        }
+      }
     }
 
     function syncManualLogEndFromStartOrDuration() {
+      const isLive = Boolean(document.getElementById('manual-log-live-timer')?.checked);
+      if (isLive) {
+        onManualLogLiveToggle();
+        return;
+      }
       const startVal = document.getElementById('manual-log-start')?.value;
       const durVal = Math.max(0, parseInt(document.getElementById('manual-log-duration')?.value || '0', 10) || 0);
       const endInp = document.getElementById('manual-log-end');
@@ -3105,7 +3208,10 @@
       if (Number.isNaN(sTs) || Number.isNaN(eTs)) return;
 
       if (eTs < sTs) {
-        if (warnEl) warnEl.classList.remove('hidden');
+        if (warnEl) {
+          warnEl.textContent = 'Время окончания не может быть раньше времени начала';
+          warnEl.classList.remove('hidden');
+        }
       } else {
         if (warnEl) warnEl.classList.add('hidden');
         durInp.value = String(Math.round((eTs - sTs) / 60000));
@@ -3122,12 +3228,51 @@
       const endVal = document.getElementById('manual-log-end')?.value;
       const rawDur = Math.max(0, parseInt(document.getElementById('manual-log-duration')?.value || '0', 10) || 0);
       const rawNote = (document.getElementById('manual-log-note')?.value || '').trim();
+      const isLiveTimer = !editId && Boolean(document.getElementById('manual-log-live-timer')?.checked) && ['feeding', 'feeding_solids', 'sleep', 'walk'].includes(type);
 
-      const startTime = startVal ? new Date(startVal).getTime() : Date.now();
+      const parsedStart = startVal ? new Date(startVal).getTime() : Date.now();
+      const startTime = Number.isNaN(parsedStart) ? Date.now() : parsedStart;
+      const warnEl = document.getElementById('manual-log-time-warning');
+
+      // Режим запуска живого таймера с выбранного времени начала
+      if (isLiveTimer) {
+        if (startTime > Date.now() + 60000) {
+          if (warnEl) {
+            warnEl.textContent = 'Время начала для таймера не может быть в будущем';
+            warnEl.classList.remove('hidden');
+          }
+          return;
+        }
+        const timerKey = type === 'feeding_solids' ? 'feeding' : type;
+        const timer = appState.timers[timerKey];
+        if (timer) {
+          timer.active = true;
+          timer.startTime = startTime;
+          if (timerKey === 'feeding') {
+            timer.subtype = type === 'feeding_solids'
+              ? 'solids'
+              : (subtype === 'left' || subtype === 'right' || subtype === 'bottle' ? subtype : 'left');
+          } else if (timerKey === 'sleep') {
+            timer.sleepType = sleepTypeChoice === 'auto' ? detectSleepTypeByHour(startTime) : sleepTypeChoice;
+          }
+        }
+        closeModal('modal-manual-log');
+        saveAppState();
+        renderJournalTab();
+        renderHereAndNowWidget();
+        evaluateSmartNotifications();
+        const timerLabels = { feeding: 'кормления', sleep: 'сна', walk: 'прогулки' };
+        showToast(`Таймер ${timerLabels[timerKey] || ''} запущен с ${formatClockHHMM(startTime)}`);
+        return;
+      }
+
       let endTime = endVal ? new Date(endVal).getTime() : (startTime + rawDur * 60000);
+      if (Number.isNaN(endTime)) endTime = startTime + rawDur * 60000;
       if (endTime < startTime) {
-        const warnEl = document.getElementById('manual-log-time-warning');
-        if (warnEl) warnEl.classList.remove('hidden');
+        if (warnEl) {
+          warnEl.textContent = 'Время окончания не может быть раньше времени начала';
+          warnEl.classList.remove('hidden');
+        }
         return;
       }
 
@@ -3177,12 +3322,37 @@
         });
       }
 
+      const dStart = new Date(startTime);
+      selectedJournalDateIso = `${dStart.getFullYear()}-${String(dStart.getMonth() + 1).padStart(2, '0')}-${String(dStart.getDate()).padStart(2, '0')}`;
+
       appState.journalLogs.sort((a, b) => (b.startTime || 0) - (a.startTime || 0));
       closeModal('modal-manual-log');
       saveAppState();
       renderJournalTab();
       renderHereAndNowWidget();
+      evaluateSmartNotifications();
       showToast(editId ? 'Запись обновлена' : 'Запись добавлена в журнал');
+    }
+
+    function parseIsoToLocalDayBounds(isoStr) {
+      const parts = String(isoStr || getTodayIso()).split('-').map(Number);
+      const dateObj = new Date(parts[0], (parts[1] || 1) - 1, parts[2] || 1, 0, 0, 0, 0);
+      return { startMs: dateObj.getTime(), endMs: dateObj.getTime() + 86400000, dateObj };
+    }
+
+    function shiftJournalDate(deltaDays) {
+      const { dateObj } = parseIsoToLocalDayBounds(selectedJournalDateIso);
+      dateObj.setDate(dateObj.getDate() + deltaDays);
+      const todayIso = getTodayIso();
+      const nextIso = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
+      if (nextIso > todayIso) return;
+      selectedJournalDateIso = nextIso;
+      renderJournalTab();
+    }
+
+    function resetJournalDateToToday() {
+      selectedJournalDateIso = getTodayIso();
+      renderJournalTab();
     }
 
     function deleteJournalLog(logId) {
@@ -3365,15 +3535,57 @@
 
       const listEl = document.getElementById('journal-logs-list');
       const statsEl = document.getElementById('journal-today-stats');
+      const titleEl = document.getElementById('journal-day-title');
+      const subtitleEl = document.getElementById('journal-day-subtitle');
+      const nextBtn = document.getElementById('journal-next-day-btn');
+      const todayBtn = document.getElementById('journal-today-btn');
       if (!listEl) return;
 
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
-      const todayLogs = (appState.journalLogs || []).filter(l => (l.startTime || 0) >= todayStart.getTime());
+      const todayIso = getTodayIso();
+      if (!selectedJournalDateIso || selectedJournalDateIso > todayIso) {
+        selectedJournalDateIso = todayIso;
+      }
 
-      const feedCount = todayLogs.filter(l => l.type === 'feeding' || l.type === 'feeding_solids').length;
-      const sleepMin = todayLogs.filter(l => l.type === 'sleep').reduce((acc, l) => acc + (Number(l.durationMin) || 0), 0);
-      const diaperCount = todayLogs.filter(l => l.type === 'diaper_wet' || l.type === 'diaper_dirty').length;
+      const { startMs, endMs, dateObj } = parseIsoToLocalDayBounds(selectedJournalDateIso);
+      const yestDate = new Date();
+      yestDate.setDate(yestDate.getDate() - 1);
+      const yesterdayIso = `${yestDate.getFullYear()}-${String(yestDate.getMonth() + 1).padStart(2, '0')}-${String(yestDate.getDate()).padStart(2, '0')}`;
+      const weekdays = ['воскресенье', 'понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота'];
+      const isToday = selectedJournalDateIso === todayIso;
+      const isYesterday = selectedJournalDateIso === yesterdayIso;
+
+      if (titleEl) {
+        titleEl.textContent = isToday
+          ? 'Записи за сегодня'
+          : isYesterday
+            ? 'Записи за вчера'
+            : `Записи за ${formatDateRu(selectedJournalDateIso)}`;
+      }
+      if (subtitleEl) {
+        subtitleEl.textContent = `${formatDateRu(selectedJournalDateIso)} • ${weekdays[dateObj.getDay()]}`;
+      }
+      if (nextBtn) {
+        nextBtn.disabled = isToday;
+      }
+      if (todayBtn) {
+        todayBtn.classList.toggle('hidden', isToday);
+      }
+
+      const dayLogs = (appState.journalLogs || []).filter(l => {
+        const s = l.startTime || 0;
+        return s >= startMs && s < endMs;
+      });
+
+      const feedCount = dayLogs.filter(l => l.type === 'feeding' || l.type === 'feeding_solids').length;
+      const diaperCount = dayLogs.filter(l => l.type === 'diaper_wet' || l.type === 'diaper_dirty').length;
+      const sleepMin = (appState.journalLogs || []).reduce((acc, l) => {
+        if (l.type !== 'sleep') return acc;
+        const s = l.startTime || 0;
+        const e = l.endTime || (s + (Number(l.durationMin) || 0) * 60000);
+        const ovS = Math.max(s, startMs);
+        const ovE = Math.min(e, endMs);
+        return ovE > ovS ? acc + Math.round((ovE - ovS) / 60000) : acc;
+      }, 0);
 
       if (statsEl) {
         statsEl.innerHTML = `
@@ -3383,13 +3595,17 @@
         `;
       }
 
-      const logsToShow = (appState.journalLogs || []).slice(0, 40);
-      if (logsToShow.length === 0) {
-        listEl.innerHTML = `<div class="py-8 text-center text-xs text-slate-400">Записей пока нет. Запустите таймер или нажмите «Добавить вручную».</div>`;
+      if (dayLogs.length === 0) {
+        listEl.innerHTML = isToday
+          ? `<div class="py-8 text-center text-xs text-slate-400">Записей за сегодня пока нет. Запустите таймер или нажмите «Добавить вручную».</div>`
+          : `<div class="py-8 text-center text-xs text-slate-400 space-y-2">
+               <div>Записей за ${formatDateRu(selectedJournalDateIso)} нет.</div>
+               <button type="button" onclick="resetJournalDateToToday()" class="px-3 py-1.5 rounded-xl bg-warmgray dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-semibold hover:bg-rose-50 dark:hover:bg-rose-950/50 transition">Вернуться к сегодняшнему дню</button>
+             </div>`;
         return;
       }
 
-      listEl.innerHTML = logsToShow.map(log => {
+      listEl.innerHTML = dayLogs.map(log => {
         const dotColor = log.type === 'sleep'
           ? 'bg-indigo-500'
           : (log.type === 'feeding' || log.type === 'feeding_solids')
@@ -3397,7 +3613,7 @@
             : log.type === 'walk'
               ? 'bg-emerald-500'
               : 'bg-sky-500';
-        const timeStr = formatDateTimeRu(log.startTime);
+        const timeStr = formatClockHHMM(log.startTime);
         const endStr = log.endTime && log.endTime !== log.startTime ? ` – ${formatClockHHMM(log.endTime)}` : '';
         return `
           <div onclick="openEditJournalLogModal('${log.id}')" class="py-3 flex items-center justify-between gap-2.5 cursor-pointer hover:bg-warmgray/40 dark:hover:bg-slate-800/40 px-2 rounded-xl transition">
