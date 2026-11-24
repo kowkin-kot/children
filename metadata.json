@@ -1,0 +1,6 @@
+{
+  "name": "Малыш+ — Календарь развития ребёнка от 0 до 5 лет",
+  "description": "Календарь развития ребёнка от 0 до 5 лет, журнал кормлений, сна и прогулок, зубная карта, прививки, графики ВОЗ и дневник достижений.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
