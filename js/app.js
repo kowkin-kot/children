@@ -74,6 +74,7 @@ import {
   jumpToLatestJournalDate,
   setRhythmDays,
   updateLiveTimersClock,
+  renderRhythmAnalytics,
   renderJournalTab
 } from './tabs/journal.js';
 import {
@@ -256,6 +257,9 @@ async function initApp() {
     if (!store.currentAccountLogin) return;
     renderHereAndNowWidget();
     evaluateSmartNotifications();
+    if (store.activeTab === 'journal') {
+      renderRhythmAnalytics();
+    }
   }, 30000);
 }
 

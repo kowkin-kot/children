@@ -159,13 +159,19 @@ export function renderDevelopmentTab() {
           const checked = Boolean(appState.completedMilestones[`${sel}_${idx}`]);
           const catColor = categoryColorMap[item.category] || 'text-slate-400';
           return `
-            <label onclick="toggleMilestone(${sel}, ${idx})" class="flex items-start gap-3 p-3 rounded-2xl bg-warmgray/60 dark:bg-slate-800/70 hover:bg-rose-50/60 dark:hover:bg-slate-800 cursor-pointer transition">
-              <input type="checkbox" ${checked ? 'checked' : ''} onclick="event.stopPropagation(); toggleMilestone(${sel}, ${idx})" class="mt-1 w-4 h-4 accent-rose-500 rounded shrink-0" />
-              <div class="min-w-0 space-y-0.5">
-                ${item.category ? `<div class="text-[10px] font-extrabold uppercase tracking-wider ${checked ? 'text-slate-400' : catColor}">${escapeHtml(item.category)}</div>` : ''}
-                <div class="text-xs sm:text-sm leading-snug ${checked ? 'line-through text-slate-400' : 'text-slate-700 dark:text-slate-200'}">${escapeHtml(item.text)}</div>
-              </div>
-            </label>
+            <button type="button" role="checkbox" aria-checked="${checked ? 'true' : 'false'}" onclick="toggleMilestone(${sel}, ${idx})" class="w-full text-left flex items-start gap-3 p-3 rounded-2xl bg-warmgray/60 dark:bg-slate-800/70 hover:bg-rose-50/60 dark:hover:bg-slate-800 active:scale-[0.99] cursor-pointer select-none transition">
+              <span aria-hidden="true" class="mt-0.5 w-[18px] h-[18px] rounded-md border flex items-center justify-center shrink-0 transition ${
+                checked
+                  ? 'bg-rose-500 border-rose-500 text-white'
+                  : 'bg-white dark:bg-slate-900 border-stone-300 dark:border-slate-600'
+              }">
+                ${checked ? '<svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>' : ''}
+              </span>
+              <span class="min-w-0 flex-1 block space-y-0.5">
+                ${item.category ? `<span class="block text-[10px] font-extrabold uppercase tracking-wider ${checked ? 'text-slate-400' : catColor}">${escapeHtml(item.category)}</span>` : ''}
+                <span class="block text-xs sm:text-sm leading-snug ${checked ? 'line-through text-slate-400' : 'text-slate-700 dark:text-slate-200'}">${escapeHtml(item.text)}</span>
+              </span>
+            </button>
           `;
         }).join('')}
       </div>
