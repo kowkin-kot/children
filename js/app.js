@@ -23,6 +23,7 @@ import {
   flushPendingSync,
   syncSavedSessionFromCloud,
   switchAuthMode,
+  selectAuthInviteRole,
   handleAuthSubmit,
   toggleAuthPasswordVisibility,
   logoutAccount
@@ -43,8 +44,37 @@ import {
   cycleThemeMode,
   openProfileModal,
   selectProfileGender,
+  selectProfileCaregiverRole,
+  generateFamilyInviteUI,
+  copyFamilyInviteCode,
   saveProfileSettings
 } from './ui-shell.js';
+import {
+  renderSolidsMatrixSummary,
+  openSolidsMatrixModal,
+  setSolidsMatrixCategory,
+  setSolidsMatrixStatusFilter,
+  setSolidsMatrixAllergenFilter,
+  setSolidsMatrixSearch,
+  toggleSolidsMatrixCustomForm,
+  addCustomSolidsFood,
+  selectSolidsMatrixFood,
+  quickToggleSolidsFoodTried,
+  updateSolidsFoodField,
+  logSolidsFoodToJournalFromMatrix,
+  syncSolidsMatrixFromLog
+} from './tabs/solids-matrix.js';
+import {
+  openNightMode,
+  closeNightMode,
+  cycleNightDimLevel,
+  nightSelectFeedingSubtype,
+  nightToggleTimer,
+  nightQuickCare,
+  updateNightModeClock,
+  renderNightMode,
+  maybeAutoOpenNightMode
+} from './night-mode.js';
 import {
   filterWeekRange,
   jumpToWeekNumber,
@@ -131,6 +161,7 @@ function renderAll() {
   renderHeaderBabyInfo();
   renderHereAndNowWidget();
   evaluateSmartNotifications();
+  renderNightMode();
   switchTab(store.activeTab);
 }
 
@@ -140,6 +171,7 @@ function enterMainApp() {
   applyThemeMode(store.appState.themeMode || 'auto');
   renderPwaInstallUI();
   renderAll();
+  maybeAutoOpenNightMode({ forceOnLaunch: true });
 }
 
 // Привязываем кросс-модульные хуки
@@ -153,12 +185,17 @@ Object.assign(hooks, {
   switchTab,
   toggleTimer,
   flushPendingSync,
-  enterMainApp
+  enterMainApp,
+  renderNightMode,
+  maybeAutoOpenNightMode,
+  renderSolidsMatrixSummary,
+  syncSolidsMatrixFromLog
 });
 
 // Регистрируем обработчики для inline-атрибутов HTML
 Object.assign(window, {
   switchAuthMode,
+  selectAuthInviteRole,
   handleAuthSubmit,
   toggleAuthPasswordVisibility,
   switchTab,
@@ -206,6 +243,9 @@ Object.assign(window, {
   closeModal,
   saveProfileSettings,
   selectProfileGender,
+  selectProfileCaregiverRole,
+  generateFamilyInviteUI,
+  copyFamilyInviteCode,
   setThemeMode,
   triggerPwaInstall,
   dismissPwaBanner,
@@ -216,7 +256,24 @@ Object.assign(window, {
   clearNotifHistory,
   handleSmartNotifAction,
   snoozeSmartNotif,
-  toggleSleepDebtDetails
+  toggleSleepDebtDetails,
+  openSolidsMatrixModal,
+  setSolidsMatrixCategory,
+  setSolidsMatrixStatusFilter,
+  setSolidsMatrixAllergenFilter,
+  setSolidsMatrixSearch,
+  toggleSolidsMatrixCustomForm,
+  addCustomSolidsFood,
+  selectSolidsMatrixFood,
+  quickToggleSolidsFoodTried,
+  updateSolidsFoodField,
+  logSolidsFoodToJournalFromMatrix,
+  openNightMode,
+  closeNightMode,
+  cycleNightDimLevel,
+  nightSelectFeedingSubtype,
+  nightToggleTimer,
+  nightQuickCare
 });
 
 async function initApp() {
@@ -251,12 +308,15 @@ async function initApp() {
   setInterval(() => {
     if (!store.currentAccountLogin) return;
     updateLiveTimersClock();
+    updateNightModeClock();
   }, 1000);
 
   setInterval(() => {
     if (!store.currentAccountLogin) return;
     renderHereAndNowWidget();
     evaluateSmartNotifications();
+    maybeAutoOpenNightMode();
+    renderNightMode();
     if (store.activeTab === 'journal') {
       renderRhythmAnalytics();
     }

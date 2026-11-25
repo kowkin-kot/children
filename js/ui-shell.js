@@ -5,9 +5,12 @@ import {
   hooks,
   calculateBabyAge,
   getAgeSleepAndFeedNorms,
-  computeHereAndNowMetrics
+  computeHereAndNowMetrics,
+  getCurrentCaregiverName,
+  writeCaregiverName
 } from './state.js';
 import {
+  escapeHtml,
   getTodayIso,
   formatMinutesHuman,
   formatClockHHMM,
@@ -16,7 +19,7 @@ import {
   closeModal,
   showToast
 } from './utils.js';
-import { saveAppState } from './firebase.js';
+import { saveAppState, createFamilyInviteCode } from './firebase.js';
 import { updateNetworkStatusUI } from './pwa.js';
 
 export function renderHeaderBabyInfo() {
@@ -368,12 +371,123 @@ export function cycleThemeMode() {
   showToast(`Тема: ${next === 'auto' ? 'Авто' : next === 'light' ? 'Светлая' : 'Тёмная'}`);
 }
 
+let activeInviteState = null;
+
+function renderFamilyMembersList() {
+  const membersWrap = document.getElementById('profile-family-members');
+  if (!membersWrap) return;
+  const current = getCurrentCaregiverName();
+  const list = Array.isArray(store.appState.familyMembers) && store.appState.familyMembers.length > 0
+    ? [...store.appState.familyMembers]
+    : [current];
+  if (!list.includes(current)) list.push(current);
+
+  membersWrap.innerHTML = list.map(member => {
+    const isMe = member === current;
+    return `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-bold ${isMe ? 'bg-rose-100 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300' : 'bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-200 border border-stone-200/70 dark:border-slate-600'}">${escapeHtml(member)}${isMe ? ' (вы)' : ''}</span>`;
+  }).join('');
+}
+
+function renderActiveInviteBox() {
+  const box = document.getElementById('profile-invite-result');
+  if (!box) return;
+  if (!activeInviteState || Date.now() > activeInviteState.expiresAt) {
+    activeInviteState = null;
+    box.classList.add('hidden');
+    box.innerHTML = '';
+    return;
+  }
+  const safeCode = escapeHtml(activeInviteState.code);
+  box.classList.remove('hidden');
+  box.innerHTML = `
+    <div class="p-3 rounded-2xl bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/70 space-y-2 animate-fade-in">
+      <div class="flex items-center justify-between gap-2">
+        <span class="text-[11px] font-bold text-emerald-800 dark:text-emerald-200">Одноразовый код-приглашение</span>
+        <span class="text-[10px] font-semibold text-emerald-700/80 dark:text-emerald-300/80">до ${formatClockHHMM(activeInviteState.expiresAt)}</span>
+      </div>
+      <div class="flex items-center justify-between gap-2">
+        <span class="font-mono font-extrabold text-xl tracking-[0.22em] text-slate-900 dark:text-white select-all">${safeCode}</span>
+        <button type="button" onclick="copyFamilyInviteCode('${safeCode}')" class="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold transition shrink-0">
+          Скопировать
+        </button>
+      </div>
+      <p class="text-[10px] text-emerald-800/80 dark:text-emerald-300/80 leading-snug">
+        Второй родитель или няня нажимает на экране входа «По коду», вводит эти 6 символов и выбирает свою роль. Код сработает один раз.
+      </p>
+    </div>
+  `;
+}
+
+export function selectProfileCaregiverRole(role) {
+  const inp = document.getElementById('profile-caregiver-input');
+  if (inp) inp.value = role;
+  document.querySelectorAll('.profile-caregiver-btn').forEach(btn => {
+    const active = btn.getAttribute('data-role') === role;
+    btn.className = active
+      ? 'profile-caregiver-btn py-1.5 px-2.5 rounded-xl border border-rose-400 bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-300 text-[11px] font-bold transition'
+      : 'profile-caregiver-btn py-1.5 px-2.5 rounded-xl border border-stone-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[11px] font-semibold transition';
+  });
+}
+
+export async function generateFamilyInviteUI() {
+  const btn = document.getElementById('profile-create-invite-btn');
+  const prevText = btn ? btn.textContent : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Создаём код...';
+  }
+  try {
+    const result = await createFamilyInviteCode();
+    activeInviteState = result;
+    renderActiveInviteBox();
+    showToast(`Код приглашения создан: ${result.code}`);
+  } catch (err) {
+    showToast(err?.message || 'Не удалось создать код');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = prevText;
+    }
+  }
+}
+
+export async function copyFamilyInviteCode(code) {
+  try {
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      await navigator.clipboard.writeText(code);
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = code;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+    showToast(`Код ${code} скопирован`);
+  } catch (_) {
+    showToast(`Ваш код: ${code}`);
+  }
+}
+
 export function openProfileModal() {
   document.getElementById('profile-account-login').textContent = `@${store.currentAccountLogin || 'user'}`;
   document.getElementById('profile-name-input').value = store.appState.babyName || '';
   document.getElementById('profile-dob-input').value = store.appState.babyDob || getTodayIso();
   selectProfileGender(store.appState.babyGender || 'girl');
   applyThemeMode(store.appState.themeMode || 'auto');
+
+  const autoNightChk = document.getElementById('profile-auto-night-checkbox');
+  if (autoNightChk) autoNightChk.checked = Boolean(store.appState.autoNightAfter23);
+
+  const currentRole = getCurrentCaregiverName();
+  const roleInp = document.getElementById('profile-caregiver-input');
+  if (roleInp) roleInp.value = currentRole;
+  selectProfileCaregiverRole(currentRole);
+  renderFamilyMembersList();
+  renderActiveInviteBox();
+
   updateNetworkStatusUI();
   syncRuDateDisplays();
   openModal('modal-profile');
@@ -399,12 +513,29 @@ export function saveProfileSettings(e) {
   if (e) e.preventDefault();
   const name = (document.getElementById('profile-name-input')?.value || '').trim();
   const dob = document.getElementById('profile-dob-input')?.value || getTodayIso();
+  const roleVal = (document.getElementById('profile-caregiver-input')?.value || '').trim();
+  const autoNightChk = document.getElementById('profile-auto-night-checkbox');
+  const prevAutoNight = Boolean(store.appState.autoNightAfter23);
+  const nextAutoNight = autoNightChk ? Boolean(autoNightChk.checked) : prevAutoNight;
+
   if (name) store.appState.babyName = name;
   store.appState.babyDob = dob;
   store.appState.babyGender = store.tempGenderSelection;
+  store.appState.autoNightAfter23 = nextAutoNight;
+
+  if (roleVal) {
+    const savedRole = writeCaregiverName(store.currentAccountLogin, roleVal);
+    if (!Array.isArray(store.appState.familyMembers)) store.appState.familyMembers = [];
+    if (!store.appState.familyMembers.includes(savedRole)) {
+      store.appState.familyMembers.push(savedRole);
+    }
+  }
 
   closeModal('modal-profile');
   saveAppState();
   hooks.renderAll();
+  if (nextAutoNight && !prevAutoNight && typeof hooks.maybeAutoOpenNightMode === 'function') {
+    hooks.maybeAutoOpenNightMode({ forceOnLaunch: true });
+  }
   showToast('Данные профиля сохранены');
 }

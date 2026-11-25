@@ -1,7 +1,7 @@
 // Вкладка 2: Журнал событий, живые таймеры, прикорм, ручное добавление/редактирование и 24-часовая аналитика ритма
 
 import { SOLIDS_PRESETS } from '../data.js';
-import { store, hooks, calculateBabyAge, getAgeSleepAndFeedNorms } from '../state.js';
+import { store, hooks, calculateBabyAge, getAgeSleepAndFeedNorms, getCurrentCaregiverName } from '../state.js';
 import {
   escapeHtml,
   getTodayIso,
@@ -248,7 +248,12 @@ function buildSolidsSummary() {
 
 export function saveSolidsFeedingNow() {
   const now = Date.now();
+  const prodVal = (document.getElementById('feeding-solids-product')?.value || '').trim();
+  const appetiteVal = document.getElementById('feeding-solids-appetite')?.value || 'С удовольствием';
+  const reactionVal = document.getElementById('feeding-solids-reaction')?.value || 'Без реакции';
+  const noteVal = (document.getElementById('feeding-solids-note')?.value || '').trim();
   const title = buildSolidsSummary();
+
   store.appState.journalLogs.unshift({
     id: 'log_' + now,
     type: 'feeding_solids',
@@ -256,8 +261,14 @@ export function saveSolidsFeedingNow() {
     title,
     startTime: now,
     endTime: now,
-    durationMin: 0
+    durationMin: 0,
+    author: getCurrentCaregiverName()
   });
+
+  if (prodVal) {
+    hooks.syncSolidsMatrixFromLog(prodVal, appetiteVal, reactionVal, noteVal);
+  }
+
   const prodInp = document.getElementById('feeding-solids-product');
   const amtInp = document.getElementById('feeding-solids-amount');
   const noteInp = document.getElementById('feeding-solids-note');
@@ -346,7 +357,8 @@ export function toggleTimer(kind) {
         title,
         startTime: startTs,
         endTime: now,
-        durationMin
+        durationMin,
+        author: getCurrentCaregiverName()
       });
     } else if (kind === 'sleep') {
       const sType = timer.sleepType || detectSleepTypeByHour(startTs);
@@ -359,7 +371,8 @@ export function toggleTimer(kind) {
         title: `${sLabel} (${formatMinutesHuman(durationMin)})`,
         startTime: startTs,
         endTime: now,
-        durationMin
+        durationMin,
+        author: getCurrentCaregiverName()
       });
       autoAwake = maybeAutoInsertAwakeGapBeforeSleep(startTs, newSleepId);
     } else if (kind === 'walk') {
@@ -369,7 +382,8 @@ export function toggleTimer(kind) {
         title: `Прогулка (${formatMinutesHuman(durationMin)})`,
         startTime: startTs,
         endTime: now,
-        durationMin
+        durationMin,
+        author: getCurrentCaregiverName()
       });
     }
 
@@ -379,6 +393,7 @@ export function toggleTimer(kind) {
     renderJournalTab();
     hooks.renderHereAndNowWidget();
     hooks.evaluateSmartNotifications();
+    hooks.renderNightMode();
     showToast(autoAwake
       ? `Сон сохранён • Добавлено бодрствование ${formatClockHHMM(autoAwake.startTime)}–${formatClockHHMM(autoAwake.endTime)}`
       : 'Запись сохранена в журнал');
@@ -393,12 +408,14 @@ export function addQuickCareLog(type, title) {
     title,
     startTime: now,
     endTime: now,
-    durationMin: 0
+    durationMin: 0,
+    author: getCurrentCaregiverName()
   });
   store.selectedJournalDateIso = getTodayIso();
   saveAppState();
   renderJournalTab();
   hooks.renderHereAndNowWidget();
+  hooks.renderNightMode();
   showToast(`Отмечено: ${title}`);
 }
 
@@ -718,7 +735,8 @@ export function saveManualLog(e) {
       title,
       startTime,
       endTime,
-      durationMin
+      durationMin,
+      author: getCurrentCaregiverName()
     });
 
     if (type === 'sleep') {
@@ -1556,9 +1574,300 @@ export function renderRhythmAnalytics() {
   `;
 }
 
+// Расчёт недельного дайджеста и трендов режима (текущие 7 дней vs предыдущие 7 дней)
+export function computeWeeklyDigestMetrics(appState, now = Date.now()) {
+  const norms = getAgeSleepAndFeedNorms();
+  const allLogs = [...(appState?.journalLogs || [])].sort((a, b) => (a.startTime || 0) - (b.startTime || 0));
+  const sleepLogs = allLogs.filter(l => l.type === 'sleep');
+
+  const todayMidnight = new Date(now);
+  todayMidnight.setHours(0, 0, 0, 0);
+  const todayStart = todayMidnight.getTime();
+
+  const analyzePeriod = (startDayOffset, endDayOffset) => {
+    // offset 0 = сегодня, 1 = вчера, ..., 14 = 14 дней назад
+    const dailySleepMins = [];
+    const bedtimeUnwrappedMins = []; // минуты от полудня (12:00 = 0, 20:30 = 510, 00:30 = 750)
+    const wakeWindowMins = [];
+
+    const periodStart = todayStart - endDayOffset * 86400000;
+    const periodEnd = todayStart - (startDayOffset - 1) * 86400000;
+
+    for (let offset = startDayOffset; offset <= endDayOffset; offset++) {
+      const dayStart = todayStart - offset * 86400000;
+      const dayEnd = dayStart + 86400000;
+
+      let daySleep = 0;
+      for (const s of sleepLogs) {
+        const { start, end } = getLogTimeBounds(s);
+        const ovS = Math.max(start, dayStart);
+        const ovE = Math.min(end, dayEnd);
+        if (ovE > ovS) daySleep += Math.round((ovE - ovS) / 60000);
+      }
+      if (daySleep >= 60) {
+        dailySleepMins.push(daySleep);
+      }
+    }
+
+    // Собираем укладывания на ночь (18:00–01:30) и дневные окна бодрствования внутри периода
+    const periodSleeps = sleepLogs.filter(s => {
+      const st = s.startTime || 0;
+      return st >= periodStart && st < periodEnd;
+    });
+
+    const nightBedByDay = new Map();
+    for (let i = 0; i < periodSleeps.length; i++) {
+      const cur = periodSleeps[i];
+      const { start, end } = getLogTimeBounds(cur);
+      const durMin = Math.round((end - start) / 60000);
+      const d = new Date(start);
+      const hm = d.getHours() * 60 + d.getMinutes();
+
+      // Ночное укладывание: старт с 18:00 до 01:30, и сон (или отмеченный ночным) >= 60 мин
+      const isEveningWindow = hm >= 18 * 60 || hm <= 90;
+      const isNightCandidate = cur.sleepType === 'night' || (cur.sleepType !== 'day' && isEveningWindow && durMin >= 60);
+      if (isEveningWindow && isNightCandidate) {
+        // Относим к календарной дате вечера (для 00:00–01:30 берём предыдущий день)
+        const nightDate = new Date(start);
+        if (hm <= 90) nightDate.setDate(nightDate.getDate() - 1);
+        const dayKey = `${nightDate.getFullYear()}-${nightDate.getMonth()}-${nightDate.getDate()}`;
+        const unwrapped = hm >= 12 * 60 ? hm - 12 * 60 : hm + 12 * 60;
+        // Берём самое первое укладывание на ночь в этот вечер
+        if (!nightBedByDay.has(dayKey) || unwrapped < nightBedByDay.get(dayKey)) {
+          nightBedByDay.set(dayKey, unwrapped);
+        }
+      }
+
+      if (i > 0) {
+        const prevEnd = getLogTimeBounds(periodSleeps[i - 1]).end;
+        const gapMin = Math.round((start - prevEnd) / 60000);
+        const startHour = d.getHours() + d.getMinutes() / 60;
+        if (gapMin >= 20 && gapMin <= 540 && startHour >= 7 && startHour <= 22.5) {
+          wakeWindowMins.push(gapMin);
+        }
+      }
+    }
+
+    for (const val of nightBedByDay.values()) {
+      bedtimeUnwrappedMins.push(val);
+    }
+
+    const avg = (arr) => arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
+    const avgSleepMin = avg(dailySleepMins);
+    const avgWakeMin = avg(wakeWindowMins);
+    const avgBedUnwrapped = avg(bedtimeUnwrappedMins);
+    let bedtimeSpreadMin = null;
+    if (bedtimeUnwrappedMins.length >= 2 && avgBedUnwrapped !== null) {
+      const meanAbsDev = bedtimeUnwrappedMins.reduce((acc, v) => acc + Math.abs(v - avgBedUnwrapped), 0) / bedtimeUnwrappedMins.length;
+      bedtimeSpreadMin = Math.round(meanAbsDev);
+    }
+
+    return {
+      daysWithSleep: dailySleepMins.length,
+      avgSleepMin: avgSleepMin !== null ? Math.round(avgSleepMin) : null,
+      avgWakeMin: avgWakeMin !== null ? Math.round(avgWakeMin) : null,
+      wakeSamples: wakeWindowMins.length,
+      avgBedUnwrapped: avgBedUnwrapped !== null ? Math.round(avgBedUnwrapped) : null,
+      bedtimeSamples: bedtimeUnwrappedMins.length,
+      bedtimeSpreadMin
+    };
+  };
+
+  // Берём завершённые последние 7 дней (1..7); если их меньше 2, включаем сегодняшний день (0..6)
+  let current = analyzePeriod(1, 7);
+  let includesToday = false;
+  if (current.daysWithSleep < 2) {
+    current = analyzePeriod(0, 6);
+    includesToday = true;
+  }
+  const previous = analyzePeriod(includesToday ? 7 : 8, includesToday ? 13 : 14);
+
+  const formatUnwrappedHHMM = (unwrapped) => {
+    if (unwrapped === null || unwrapped === undefined) return '—';
+    const totalMin = ((unwrapped + 12 * 60) % 1440 + 1440) % 1440;
+    const hh = Math.floor(totalMin / 60);
+    const mm = totalMin % 60;
+    return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+  };
+
+  const sleepDeltaMin = (current.avgSleepMin !== null && previous.avgSleepMin !== null && previous.daysWithSleep >= 2)
+    ? current.avgSleepMin - previous.avgSleepMin
+    : null;
+
+  const bedtimeDriftMin = (current.avgBedUnwrapped !== null && previous.avgBedUnwrapped !== null && previous.bedtimeSamples >= 2)
+    ? current.avgBedUnwrapped - previous.avgBedUnwrapped
+    : null;
+
+  const wakeDeltaFromNormMin = current.avgWakeMin !== null
+    ? current.avgWakeMin - norms.wakeWindowMin
+    : null;
+
+  // Умная подсказка, если режим начал смещаться
+  const hints = [];
+  if (bedtimeDriftMin !== null && bedtimeDriftMin >= 25) {
+    hints.push({
+      tone: 'amber',
+      text: `Укладывание на ночь сместилось на ${bedtimeDriftMin} мин позже, чем на прошлой неделе — попробуйте начинать вечерний ритуал чуть раньше.`
+    });
+  } else if (bedtimeDriftMin !== null && bedtimeDriftMin <= -25) {
+    hints.push({
+      tone: 'emerald',
+      text: `Укладывание на ночь стало раньше на ${Math.abs(bedtimeDriftMin)} мин — отличный шаг к более спокойному ночному сну.`
+    });
+  }
+
+  if (sleepDeltaMin !== null && sleepDeltaMin <= -30) {
+    hints.push({
+      tone: 'rose',
+      text: `Средний сон за неделю снизился на ${formatMinutesHuman(Math.abs(sleepDeltaMin))}. Проверьте признаки усталости и не допускайте перегула.`
+    });
+  } else if (current.avgSleepMin !== null && current.avgSleepMin < norms.dailySleepTargetMin - 60) {
+    hints.push({
+      tone: 'amber',
+      text: `Средний суточный сон (${formatMinutesHuman(current.avgSleepMin)}) немного ниже возрастного ориентира (${norms.dailySleepLabel}).`
+    });
+  }
+
+  if (wakeDeltaFromNormMin !== null && wakeDeltaFromNormMin >= 25) {
+    hints.push({
+      tone: 'amber',
+      text: `Окно бодрствования в среднем длиннее возрастной нормы на ${wakeDeltaFromNormMin} мин — укладывание на 15–20 мин раньше может облегчить засыпание.`
+    });
+  }
+
+  if (current.bedtimeSpreadMin !== null && current.bedtimeSpreadMin > 45) {
+    hints.push({
+      tone: 'amber',
+      text: `Время отхода ко сну заметно «плавает» (±${current.bedtimeSpreadMin} мин). Стабильный интервал ±20 мин помогает внутренним часам малыша.`
+    });
+  }
+
+  if (hints.length === 0 && current.daysWithSleep >= 2) {
+    hints.push({
+      tone: 'emerald',
+      text: 'Режим на этой неделе держится стабильно и гармонично соответствует возрасту малыша.'
+    });
+  }
+
+  return {
+    norms,
+    includesToday,
+    current,
+    previous,
+    avgBedtimeStr: formatUnwrappedHHMM(current.avgBedUnwrapped),
+    sleepDeltaMin,
+    bedtimeDriftMin,
+    wakeDeltaFromNormMin,
+    topHint: hints[0] || null
+  };
+}
+
+export function renderWeeklyDigest() {
+  const wrap = document.getElementById('weekly-digest-container');
+  if (!wrap) return;
+
+  const d = computeWeeklyDigestMetrics(store.appState, Date.now());
+  if (d.current.daysWithSleep < 2) {
+    wrap.innerHTML = `
+      <div class="bg-white dark:bg-slate-900 rounded-3xl border border-stone-200/70 dark:border-slate-800 p-4 sm:p-5 space-y-2 shadow-2xs">
+        <div class="flex items-center justify-between gap-2">
+          <h3 class="font-display font-bold text-sm sm:text-base text-slate-900 dark:text-slate-100">Недельный дайджест и тренды режима</h3>
+          <span class="px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-300 text-[10px] font-bold">Авто-сводка</span>
+        </div>
+        <p class="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+          Отмечайте сны минимум 2 дня — здесь автоматически появятся среднее время сна за неделю, стабильность отхода ко сну, средняя длина окна бодрствования и предупреждения о смещении режима.
+        </p>
+      </div>
+    `;
+    return;
+  }
+
+  const sleepDeltaHtml = d.sleepDeltaMin !== null
+    ? `<span class="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-extrabold ${d.sleepDeltaMin >= 10 ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300' : d.sleepDeltaMin <= -15 ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300' : 'bg-stone-100 dark:bg-slate-800 text-slate-500 dark:text-slate-300'}">${d.sleepDeltaMin > 0 ? `+${d.sleepDeltaMin}` : d.sleepDeltaMin} мин к прошл. нед.</span>`
+    : `<span class="text-[10px] text-slate-400">Ориентир: ${escapeHtml(d.norms.dailySleepLabel)}</span>`;
+
+  let stabilityLabel = 'Мало данных';
+  let stabilityCls = 'bg-stone-100 dark:bg-slate-800 text-slate-500 dark:text-slate-300';
+  if (d.current.bedtimeSpreadMin !== null) {
+    if (d.current.bedtimeSpreadMin <= 25) {
+      stabilityLabel = `Стабильно (±${d.current.bedtimeSpreadMin} мин)`;
+      stabilityCls = 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300';
+    } else if (d.current.bedtimeSpreadMin <= 45) {
+      stabilityLabel = `Умеренно (±${d.current.bedtimeSpreadMin} мин)`;
+      stabilityCls = 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300';
+    } else {
+      stabilityLabel = `Плавает (±${d.current.bedtimeSpreadMin} мин)`;
+      stabilityCls = 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300';
+    }
+  } else if (d.current.bedtimeSamples === 1) {
+    stabilityLabel = 'Нужно ≥2 вечеров';
+  }
+
+  const wakeNormCompare = d.wakeDeltaFromNormMin !== null
+    ? (Math.abs(d.wakeDeltaFromNormMin) <= 15
+      ? `<span class="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300">В норме (~${formatMinutesHuman(d.norms.wakeWindowMin)})</span>`
+      : `<span class="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold ${d.wakeDeltaFromNormMin > 15 ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300' : 'bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300'}">${d.wakeDeltaFromNormMin > 0 ? `+${d.wakeDeltaFromNormMin}` : d.wakeDeltaFromNormMin} мин от нормы</span>`)
+    : `<span class="text-[10px] text-slate-400">Норма: ${formatMinutesHuman(d.norms.wakeWindowMin)}</span>`;
+
+  const hintToneCls = d.topHint?.tone === 'rose'
+    ? 'bg-rose-50/90 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800/70 text-rose-800 dark:text-rose-200'
+    : d.topHint?.tone === 'amber'
+      ? 'bg-amber-50/90 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800/70 text-amber-900 dark:text-amber-200'
+      : 'bg-emerald-50/90 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800/70 text-emerald-800 dark:text-emerald-200';
+
+  wrap.innerHTML = `
+    <div class="bg-white dark:bg-slate-900 rounded-3xl border border-stone-200/70 dark:border-slate-800 p-4 sm:p-5 space-y-3 shadow-2xs">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 class="font-display font-bold text-sm sm:text-base text-slate-900 dark:text-slate-100">Недельный дайджест и тренды режима</h3>
+          <p class="text-[11px] text-slate-500 dark:text-slate-400">Анализ за последние 7 дней (${d.current.daysWithSleep} дн. с данными)</p>
+        </div>
+        ${d.bedtimeDriftMin !== null && Math.abs(d.bedtimeDriftMin) >= 15 ? `
+          <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${d.bedtimeDriftMin > 0 ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300' : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'}">
+            Отбой ${d.bedtimeDriftMin > 0 ? `позже на ${d.bedtimeDriftMin} мин` : `раньше на ${Math.abs(d.bedtimeDriftMin)} мин`}
+          </span>
+        ` : ''}
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+        <div class="p-3 rounded-2xl bg-warmgray/70 dark:bg-slate-800/70 border border-stone-200/60 dark:border-slate-700/70 space-y-1">
+          <div class="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Средний сон в сутки</div>
+          <div class="font-display font-extrabold text-base sm:text-lg text-slate-900 dark:text-slate-100 tabular-nums">${d.current.avgSleepMin !== null ? formatMinutesHuman(d.current.avgSleepMin) : '—'}</div>
+          <div>${sleepDeltaHtml}</div>
+        </div>
+
+        <div class="p-3 rounded-2xl bg-warmgray/70 dark:bg-slate-800/70 border border-stone-200/60 dark:border-slate-700/70 space-y-1">
+          <div class="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Укладывание на ночь</div>
+          <div class="font-display font-extrabold text-base sm:text-lg text-slate-900 dark:text-slate-100 tabular-nums">${d.avgBedtimeStr !== '—' ? `~${d.avgBedtimeStr}` : '—'}</div>
+          <div><span class="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold ${stabilityCls}">${stabilityLabel}</span></div>
+        </div>
+
+        <div class="p-3 rounded-2xl bg-warmgray/70 dark:bg-slate-800/70 border border-stone-200/60 dark:border-slate-700/70 space-y-1">
+          <div class="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Среднее окно бодрствования</div>
+          <div class="font-display font-extrabold text-base sm:text-lg text-slate-900 dark:text-slate-100 tabular-nums">${d.current.avgWakeMin !== null ? formatMinutesHuman(d.current.avgWakeMin) : '—'}</div>
+          <div>${wakeNormCompare}</div>
+        </div>
+      </div>
+
+      ${d.topHint ? `
+        <div class="p-3 rounded-2xl border text-xs font-medium leading-relaxed ${hintToneCls}">
+          ${escapeHtml(d.topHint.text)}
+        </div>
+      ` : ''}
+    </div>
+  `;
+}
+
 export function renderJournalTab() {
   renderJournalTimersUI();
   renderRhythmAnalytics();
+  renderWeeklyDigest();
+  hooks.renderSolidsMatrixSummary();
+
+  const caregiverBadge = document.getElementById('journal-caregiver-pill');
+  if (caregiverBadge) {
+    caregiverBadge.textContent = getCurrentCaregiverName();
+  }
 
   const appState = store.appState;
   const listEl = document.getElementById('journal-logs-list');
@@ -1682,13 +1991,19 @@ export function renderJournalTab() {
     const autoBadge = log.autoGenerated
       ? '<span class="ml-1.5 inline-block px-1.5 py-0.5 rounded-md bg-amber-100/80 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 text-[10px] font-semibold align-middle">авто</span>'
       : '';
+    const authorTag = log.author
+      ? `<span class="inline-flex items-center px-1.5 py-0.5 rounded-md bg-warmgray dark:bg-slate-800 text-slate-500 dark:text-slate-300 text-[10px] font-semibold">${escapeHtml(log.author)}</span>`
+      : '';
     return `
       <div onclick="openEditJournalLogModal('${safeId}')" class="py-3 flex items-center justify-between gap-2.5 cursor-pointer hover:bg-warmgray/40 dark:hover:bg-slate-800/40 px-2 rounded-xl transition">
         <div class="flex items-start gap-2.5 min-w-0">
           <span class="w-2.5 h-2.5 rounded-full ${dotColor} mt-1.5 shrink-0"></span>
           <div class="min-w-0">
             <div class="text-xs sm:text-sm font-semibold text-slate-800 dark:text-slate-100 break-words">${escapeHtml(formatDisplayLogTitle(log))}${autoBadge}</div>
-            <div class="text-[11px] text-slate-400">${timeStr}${endStr}</div>
+            <div class="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400 mt-0.5">
+              <span>${timeStr}${endStr}</span>
+              ${authorTag}
+            </div>
           </div>
         </div>
         <div class="flex items-center gap-1 shrink-0" onclick="event.stopPropagation()">

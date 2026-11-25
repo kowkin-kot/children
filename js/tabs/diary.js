@@ -1,6 +1,6 @@
 // Вкладка 6: Дневник достижений и заметок
 
-import { store } from '../state.js';
+import { store, hooks } from '../state.js';
 import { escapeHtml, getTodayIso, formatDateRu, showToast } from '../utils.js';
 import { saveAppState } from '../firebase.js';
 
@@ -38,6 +38,7 @@ export function deleteDiaryEntry(entryId) {
 }
 
 export function renderDiaryTab() {
+  hooks.renderSolidsMatrixSummary();
   const list = document.getElementById('diary-entries-list');
   if (!list) return;
 

@@ -3,7 +3,8 @@
 import {
   firebaseConfig,
   FIREBASE_COLLECTION_PATH,
-  LEGACY_FIREBASE_COLLECTION_PATH
+  LEGACY_FIREBASE_COLLECTION_PATH,
+  FIREBASE_INVITES_COLLECTION_PATH
 } from './config.js';
 import {
   store,
@@ -15,6 +16,8 @@ import {
   readLocalAccounts,
   writeLocalAccount,
   writeLocalSession,
+  writeCaregiverName,
+  getCurrentCaregiverName,
   calculateBabyAge
 } from './state.js';
 import {
@@ -348,11 +351,78 @@ export async function syncSavedSessionFromCloud(savedLogin) {
   } catch (_) {}
 }
 
+const INVITE_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const INVITE_TTL_MS = 30 * 60000; // 30 минут
+
+export function generateInviteCodeString(length = 6) {
+  const bytes = new Uint8Array(length);
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    crypto.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < length; i++) bytes[i] = Math.floor(Math.random() * 256);
+  }
+  let out = '';
+  for (let i = 0; i < length; i++) {
+    out += INVITE_CODE_ALPHABET[bytes[i] % INVITE_CODE_ALPHABET.length];
+  }
+  return out;
+}
+
+export async function createFamilyInviteCode() {
+  if (!store.currentAccountLogin) {
+    throw new Error('Сначала войдите в аккаунт.');
+  }
+  if (!navigator.onLine) {
+    throw new Error('Для создания кода-приглашения нужен интернет.');
+  }
+  const user = await ensureFirebaseReady();
+  if (!user || !db || !fbFirestoreSdk) {
+    throw new Error('Не удалось подключиться к облачной базе. Попробуйте через пару секунд.');
+  }
+
+  // Сохраняем текущие данные перед приглашением, чтобы второй родитель сразу увидел актуальный журнал
+  await saveAppState();
+
+  const code = generateInviteCodeString(6);
+  const now = Date.now();
+  const expiresAt = now + INVITE_TTL_MS;
+  const inviteRef = fbFirestoreSdk.doc(db, ...FIREBASE_INVITES_COLLECTION_PATH, code);
+
+  await fbFirestoreSdk.setDoc(inviteRef, {
+    code,
+    targetLogin: store.currentAccountLogin,
+    babyName: store.appState?.babyName || 'Малыш',
+    createdBy: getCurrentCaregiverName(),
+    createdAt: now,
+    expiresAt,
+    used: false
+  });
+
+  return { code, expiresAt };
+}
+
+export function selectAuthInviteRole(role) {
+  const inp = document.getElementById('auth-invite-role-input');
+  if (inp) inp.value = role;
+  document.querySelectorAll('.auth-invite-role-btn').forEach(btn => {
+    const active = btn.getAttribute('data-role') === role;
+    btn.className = active
+      ? 'auth-invite-role-btn py-1.5 px-2.5 rounded-xl border border-rose-400 bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-300 text-xs font-bold transition'
+      : 'auth-invite-role-btn py-1.5 px-2.5 rounded-xl border border-stone-200 dark:border-slate-700 bg-warmgray/70 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-semibold transition';
+  });
+}
+
 export function switchAuthMode(mode) {
-  store.authMode = mode === 'login' ? 'login' : 'register';
+  store.authMode = mode === 'login' ? 'login' : mode === 'invite' ? 'invite' : 'register';
   const tabReg = document.getElementById('auth-tab-register');
   const tabLog = document.getElementById('auth-tab-login');
+  const tabInv = document.getElementById('auth-tab-invite');
+  const credFields = document.getElementById('auth-credentials-fields');
   const regFields = document.getElementById('auth-register-fields');
+  const invFields = document.getElementById('auth-invite-fields');
+  const loginInp = document.getElementById('auth-login-input');
+  const passInp = document.getElementById('auth-pass-input');
+  const invCodeInp = document.getElementById('auth-invite-code');
   const submitBtn = document.getElementById('auth-submit-btn');
   const loginLabel = document.getElementById('auth-login-label');
   const passLabel = document.getElementById('auth-pass-label');
@@ -360,20 +430,36 @@ export function switchAuthMode(mode) {
 
   if (errBox) errBox.classList.add('hidden');
 
+  const activeCls = 'py-2 px-2 rounded-xl text-xs font-bold bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-2xs transition';
+  const idleCls = 'py-2 px-2 rounded-xl text-xs font-bold text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition';
+
+  if (tabReg) tabReg.className = store.authMode === 'register' ? activeCls : idleCls;
+  if (tabLog) tabLog.className = store.authMode === 'login' ? activeCls : idleCls;
+  if (tabInv) tabInv.className = store.authMode === 'invite' ? activeCls : idleCls;
+
+  const isInvite = store.authMode === 'invite';
+  if (credFields) credFields.classList.toggle('hidden', isInvite);
+  if (regFields) regFields.classList.toggle('hidden', store.authMode !== 'register');
+  if (invFields) invFields.classList.toggle('hidden', !isInvite);
+
+  if (loginInp) loginInp.required = !isInvite;
+  if (passInp) passInp.required = !isInvite;
+  if (invCodeInp) invCodeInp.required = isInvite;
+
   if (store.authMode === 'register') {
-    if (tabReg) tabReg.className = 'py-2 px-3 rounded-xl text-xs sm:text-sm font-bold bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-2xs transition';
-    if (tabLog) tabLog.className = 'py-2 px-3 rounded-xl text-xs sm:text-sm font-bold text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition';
-    if (regFields) regFields.classList.remove('hidden');
     if (submitBtn) submitBtn.textContent = 'Создать аккаунт и войти';
     if (loginLabel) loginLabel.innerHTML = 'Придумайте логин <span class="text-slate-400 font-normal">(мин. 3 символа)</span>';
     if (passLabel) passLabel.innerHTML = 'Пароль <span class="text-slate-400 font-normal">(мин. 4 символа)</span>';
-  } else {
-    if (tabLog) tabLog.className = 'py-2 px-3 rounded-xl text-xs sm:text-sm font-bold bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-2xs transition';
-    if (tabReg) tabReg.className = 'py-2 px-3 rounded-xl text-xs sm:text-sm font-bold text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition';
-    if (regFields) regFields.classList.add('hidden');
+  } else if (store.authMode === 'login') {
     if (submitBtn) submitBtn.textContent = 'Войти в аккаунт';
     if (loginLabel) loginLabel.textContent = 'Логин';
     if (passLabel) passLabel.textContent = 'Пароль';
+  } else {
+    if (submitBtn) submitBtn.textContent = 'Присоединиться к семье';
+    const roleInp = document.getElementById('auth-invite-role-input');
+    if (roleInp && !roleInp.value.trim()) {
+      selectAuthInviteRole('Папа');
+    }
   }
 }
 
@@ -437,6 +523,108 @@ export async function handleAuthSubmit(e) {
   const errBox = document.getElementById('auth-error-box');
   if (errBox) errBox.classList.add('hidden');
 
+  const submitBtn = document.getElementById('auth-submit-btn');
+  const prevBtnText = submitBtn ? submitBtn.textContent : '';
+
+  // Вход второго родителя / няни по одноразовому коду-приглашению
+  if (store.authMode === 'invite') {
+    const rawCode = String(document.getElementById('auth-invite-code')?.value || '')
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '');
+    const rawRole = String(document.getElementById('auth-invite-role-input')?.value || '').trim() || 'Папа';
+    const cleanRole = rawRole.slice(0, 32);
+
+    if (rawCode.length < 6) {
+      showAuthError('Введите 6-значный код приглашения.');
+      return;
+    }
+    if (!navigator.onLine) {
+      showAuthError('Для входа по коду-приглашению нужен доступ к интернету.');
+      return;
+    }
+
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Проверяем код...';
+    }
+
+    try {
+      const user = await ensureFirebaseReady();
+      if (!user || !db || !fbFirestoreSdk) {
+        showAuthError('Не удалось подключиться к облачной базе. Проверьте интернет и попробуйте снова.');
+        return;
+      }
+
+      const inviteRef = fbFirestoreSdk.doc(db, ...FIREBASE_INVITES_COLLECTION_PATH, rawCode);
+      const inviteSnap = await fbFirestoreSdk.getDoc(inviteRef);
+      if (!inviteSnap.exists()) {
+        showAuthError('Код не найден. Проверьте символы или попросите создать новый код.');
+        return;
+      }
+
+      const invite = inviteSnap.data() || {};
+      if (invite.used) {
+        showAuthError('Этот одноразовый код уже был использован. Попросите создать новый.');
+        return;
+      }
+      if (!invite.expiresAt || Date.now() > Number(invite.expiresAt)) {
+        showAuthError('Срок действия кода истёк (30 мин). Попросите создать новый код в Профиле.');
+        return;
+      }
+
+      const targetLogin = normalizeLogin(invite.targetLogin || '');
+      if (!targetLogin) {
+        showAuthError('Некорректный код приглашения.');
+        return;
+      }
+
+      const { accountData, resolvedLogin } = await fetchAccountByLogin([targetLogin]);
+      if (!accountData) {
+        showAuthError('Семейный аккаунт не найден в облаке.');
+        return;
+      }
+
+      // Отмечаем одноразовый код использованным
+      await fbFirestoreSdk.setDoc(inviteRef, {
+        used: true,
+        usedAt: Date.now(),
+        usedBy: cleanRole
+      }, { merge: true }).catch(() => {});
+
+      const mergedState = mergeStateWithDefaults(accountData.state);
+      const members = Array.isArray(mergedState.familyMembers) ? [...mergedState.familyMembers] : [];
+      if (invite.createdBy && !members.includes(invite.createdBy)) members.push(invite.createdBy);
+      if (!members.includes(cleanRole)) members.push(cleanRole);
+      mergedState.familyMembers = members;
+
+      store.currentAccountLogin = resolvedLogin;
+      // Не храним чужой passHash — saveAppState() никогда не затирает passHash пустой строкой
+      store.currentAccountPassHash = '';
+      store.currentAccountCreatedAt = accountData.createdAt || mergedState.accountCreatedAt || null;
+      store.appState = mergedState;
+
+      writeCaregiverName(resolvedLogin, cleanRole);
+      writeLocalSession(resolvedLogin);
+      writeLocalAccount(resolvedLogin, '', store.appState, {
+        createdAt: store.currentAccountCreatedAt || undefined
+      });
+      await saveAppState();
+      subscribeAccountRealtime(resolvedLogin);
+      hooks.enterMainApp();
+      showToast(`Вы присоединились к журналу (${cleanRole})`);
+    } catch (err) {
+      console.warn('Invite redeem error:', err);
+      showAuthError('Не удалось активировать код. Попробуйте ещё раз.');
+    } finally {
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = prevBtnText;
+      }
+    }
+    return;
+  }
+
   const loginRaw = document.getElementById('auth-login-input')?.value || '';
   const passRaw = document.getElementById('auth-pass-input')?.value || '';
   const login = normalizeLogin(loginRaw);
@@ -450,8 +638,6 @@ export async function handleAuthSubmit(e) {
     return;
   }
 
-  const submitBtn = document.getElementById('auth-submit-btn');
-  const prevBtnText = submitBtn ? submitBtn.textContent : '';
   if (submitBtn) {
     submitBtn.disabled = true;
     submitBtn.textContent = 'Подождите...';
@@ -490,13 +676,14 @@ export async function handleAuthSubmit(e) {
       }
 
       if (remoteExists || localAccounts[login]) {
-        showAuthError('Такой логин уже занят. Выберите другой логин или переключитесь на «Войти по логину».');
+        showAuthError('Такой логин уже занят. Выберите другой логин или переключитесь на «Войти».');
         return;
       }
 
       const createdNow = Date.now();
       const freshState = createDefaultState(babyName, babyDob);
       freshState.accountCreatedAt = createdNow;
+      freshState.familyMembers = ['Мама'];
       const curWeek = calculateBabyAge(babyDob).weeks;
       freshState.selectedWeek = curWeek;
       freshState.weekRangeStart = curWeek <= 16 ? 1 : curWeek <= 52 ? 17 : curWeek <= 104 ? 53 : curWeek <= 156 ? 105 : 157;
@@ -506,6 +693,7 @@ export async function handleAuthSubmit(e) {
       store.currentAccountPassHash = passHash;
       store.currentAccountCreatedAt = createdNow;
       store.appState = freshState;
+      writeCaregiverName(login, 'Мама');
       writeLocalSession(login);
       await saveAppState();
       subscribeAccountRealtime(login);
