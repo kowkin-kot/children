@@ -10,6 +10,8 @@ export const firebaseConfig = {
 };
 
 export const appId = firebaseConfig.projectId;
+export const FIREBASE_COLLECTION_PATH = ['artifacts', appId, 'public', 'data', 'malysh_accounts'];
+export const LEGACY_FIREBASE_COLLECTION_PATH = ['artifacts', appId, 'public', 'data', 'accounts'];
 
 export const APP_ICON_URL = 'https://kowkin-kot.github.io/children/app_icon.svg';
 export const APP_ICON_PNG_URL = 'https://kowkin-kot.github.io/children/app_icon.png';

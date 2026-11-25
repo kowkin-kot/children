@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Малыш+ Админ — Управление базами данных</title>
+  <meta name="description" content="Панель администратора Малыш+ для просмотра пользователей, статистики данных и управления паролями." />
+  <link rel="icon" type="image/svg+xml" href="https://kowkin-kot.github.io/children/app_icon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Nunito:wght@600;700;800&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            cream: '#FDFBF7',
+            warmgray: '#F4F1EA'
+          },
+          fontFamily: {
+            sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+            display: ['Nunito', 'Inter', 'sans-serif']
+          }
+        }
+      }
+    };
+  </script>
+  <link rel="stylesheet" href="./css/styles.css" />
+</head>
+<body class="bg-cream dark:bg-slate-950 text-slate-800 dark:text-slate-100 font-sans antialiased min-h-screen flex flex-col transition-colors duration-200">
+
+  <!-- ==================== ЭКРАН АВТОРИЗАЦИИ АДМИНИСТРАТОРА ==================== -->
+  <div id="admin-auth-gate" class="fixed inset-0 z-50 bg-cream dark:bg-slate-950 overflow-y-auto flex items-center justify-center p-4">
+    <div class="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl border border-stone-200/80 dark:border-slate-800 shadow-xl p-6 sm:p-8 space-y-5 my-auto animate-fade-in">
+      <div class="text-center space-y-1.5">
+        <div class="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-slate-900 dark:bg-rose-500 text-white mb-1 shadow-xs">
+          <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg>
+        </div>
+        <h1 class="font-display font-extrabold text-2xl tracking-tight text-slate-900 dark:text-slate-100">
+          Малыш<span class="text-rose-500">+</span> <span class="text-slate-400 font-bold text-lg">Admin</span>
+        </h1>
+        <p id="admin-auth-subtitle" class="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+          Проверка статуса панели администратора...
+        </p>
+      </div>
+
+      <!-- Форма первичной настройки пароля (если ADMIN_PASSWORD не задан) -->
+      <form id="admin-claim-form" class="hidden space-y-3.5">
+        <div class="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/60 text-xs text-amber-800 dark:text-amber-200 leading-relaxed">
+          Пароль администратора ещё не задан. Придумайте пароль сейчас, чтобы защитить доступ к базам данных (или задайте <code class="font-mono font-bold">ADMIN_PASSWORD</code> в секретах проекта).
+        </div>
+
+        <div>
+          <label for="admin-claim-pass" class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+            Новый пароль администратора <span class="text-slate-400 font-normal">(мин. 6 символов)</span>
+          </label>
+          <input type="password" id="admin-claim-pass" required minlength="6" maxlength="128" autocomplete="new-password" placeholder="Придумайте надёжный пароль" class="w-full px-3.5 py-2.5 rounded-xl bg-warmgray/70 dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-rose-400" />
+        </div>
+
+        <div>
+          <label for="admin-claim-confirm" class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+            Повторите пароль
+          </label>
+          <input type="password" id="admin-claim-confirm" required minlength="6" maxlength="128" autocomplete="new-password" placeholder="Повторите пароль" class="w-full px-3.5 py-2.5 rounded-xl bg-warmgray/70 dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-rose-400" />
+        </div>
+
+        <button type="submit" id="admin-claim-btn" class="w-full min-h-[46px] py-3 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-sm font-bold shadow-sm transition">
+          Установить пароль и войти
+        </button>
+      </form>
+
+      <!-- Форма входа администратора -->
+      <form id="admin-login-form" class="hidden space-y-3.5">
+        <div>
+          <label for="admin-login-pass" class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+            Пароль администратора
+          </label>
+          <div class="relative">
+            <input type="password" id="admin-login-pass" required autocomplete="current-password" placeholder="Введите пароль администратора" class="w-full px-3.5 py-2.5 pr-10 rounded-xl bg-warmgray/70 dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-rose-400" />
+            <button type="button" id="admin-toggle-login-vis" aria-label="Показать пароль" class="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <button type="submit" id="admin-login-btn" class="w-full min-h-[46px] py-3 rounded-xl bg-slate-900 dark:bg-rose-500 hover:bg-slate-800 dark:hover:bg-rose-600 text-white text-sm font-bold shadow-sm transition">
+          Войти в админ-панель
+        </button>
+      </form>
+
+      <div id="admin-auth-error" class="hidden p-3 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-xs font-medium text-rose-700 dark:text-rose-300"></div>
+
+      <div class="pt-2 border-t border-stone-100 dark:border-slate-800 flex items-center justify-between text-xs">
+        <a href="./index.html" class="font-semibold text-slate-500 hover:text-rose-500 dark:text-slate-400 dark:hover:text-rose-400 transition">
+          ← Вернуться в Малыш+
+        </a>
+        <span id="admin-auth-source-tag" class="text-[11px] font-semibold text-slate-400"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== ШАПКА АДМИН-ПАНЕЛИ ==================== -->
+  <header class="sticky top-0 z-30 bg-cream/90 dark:bg-slate-950/90 backdrop-blur-md border-b border-stone-200/70 dark:border-slate-800/80">
+    <div class="max-w-6xl mx-auto px-3 sm:px-5 h-14 sm:h-16 flex items-center justify-between gap-2">
+      <div class="flex items-center gap-2.5 min-w-0">
+        <div class="w-9 h-9 rounded-xl bg-slate-900 dark:bg-rose-500 text-white flex items-center justify-center shrink-0 shadow-2xs">
+          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg>
+        </div>
+        <div class="min-w-0">
+          <div class="flex items-center gap-2">
+            <span class="font-display font-extrabold text-base sm:text-lg tracking-tight text-slate-900 dark:text-slate-100">Малыш<span class="text-rose-500">+</span> Admin</span>
+            <span class="hidden sm:inline-flex px-2 py-0.5 rounded-full bg-warmgray dark:bg-slate-800 text-[11px] font-bold text-slate-600 dark:text-slate-300">Управление БД</span>
+          </div>
+          <p id="admin-db-status-line" class="text-[11px] text-slate-500 dark:text-slate-400 truncate">Подключение к базам данных...</p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-1.5 sm:gap-2 shrink-0">
+        <button type="button" id="admin-refresh-btn" class="inline-flex items-center gap-1.5 min-h-[38px] px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 hover:bg-stone-200/80 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition">
+          <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
+          <span class="hidden sm:inline">Обновить</span>
+        </button>
+
+        <button type="button" id="admin-theme-btn" title="Переключить тему" aria-label="Переключить тему" class="inline-flex items-center justify-center min-w-[38px] min-h-[38px] p-2 rounded-xl bg-warmgray dark:bg-slate-800 hover:bg-stone-200/80 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+        </button>
+
+        <a href="./index.html" class="inline-flex items-center gap-1.5 min-h-[38px] px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 hover:bg-stone-200/80 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition">
+          <span>Приложение</span>
+        </a>
+
+        <button type="button" id="admin-logout-btn" class="inline-flex items-center gap-1.5 min-h-[38px] px-3 py-2 rounded-xl bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-600 dark:text-rose-300 text-xs font-bold transition">
+          <span>Выйти</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ==================== ОСНОВНОЙ КОНТЕНТ АДМИН-ПАНЕЛИ ==================== -->
+  <main id="admin-dashboard" class="hidden max-w-6xl mx-auto px-3 sm:px-5 py-5 sm:py-6 space-y-5 flex-1 w-full">
+
+    <!-- Карточки сводной статистики баз данных -->
+    <section class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div class="bg-white dark:bg-slate-900 rounded-3xl border border-stone-200/70 dark:border-slate-800 p-4 shadow-2xs">
+        <div class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Всего пользователей</div>
+        <div id="kpi-total-users" class="mt-1.5 font-display font-extrabold text-2xl sm:text-3xl text-slate-900 dark:text-slate-100">0</div>
+        <div id="kpi-users-sub" class="mt-1 text-[11px] text-slate-500 dark:text-slate-400">Загрузка...</div>
+      </div>
+
+      <div class="bg-white dark:bg-slate-900 rounded-3xl border border-stone-200/70 dark:border-slate-800 p-4 shadow-2xs">
+        <div class="flex items-center justify-between gap-1">
+          <span class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Облако Firestore</span>
+          <span id="kpi-cloud-dot" class="w-2 h-2 rounded-full bg-slate-300"></span>
+        </div>
+        <div id="kpi-cloud-users" class="mt-1.5 font-display font-extrabold text-2xl sm:text-3xl text-emerald-600 dark:text-emerald-400">0</div>
+        <div id="kpi-cloud-sub" class="mt-1 text-[11px] text-slate-500 dark:text-slate-400">malysh_accounts + accounts</div>
+      </div>
+
+      <div class="bg-white dark:bg-slate-900 rounded-3xl border border-stone-200/70 dark:border-slate-800 p-4 shadow-2xs">
+        <div class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Локальная БД</div>
+        <div id="kpi-local-users" class="mt-1.5 font-display font-extrabold text-2xl sm:text-3xl text-indigo-600 dark:text-indigo-400">0</div>
+        <div class="mt-1 text-[11px] text-slate-500 dark:text-slate-400">Хранилище браузера</div>
+      </div>
+
+      <div class="bg-white dark:bg-slate-900 rounded-3xl border border-stone-200/70 dark:border-slate-800 p-4 shadow-2xs">
+        <div class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Объём данных</div>
+        <div id="kpi-total-records" class="mt-1.5 font-display font-extrabold text-2xl sm:text-3xl text-rose-500">0</div>
+        <div id="kpi-total-size" class="mt-1 text-[11px] text-slate-500 dark:text-slate-400">0 КБ всего</div>
+      </div>
+    </section>
+
+    <!-- Панель фильтров, поиска и действий -->
+    <section class="bg-white dark:bg-slate-900 rounded-3xl border border-stone-200/70 dark:border-slate-800 p-4 sm:p-5 space-y-3.5 shadow-2xs">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div class="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
+          <button type="button" data-db-filter="all" class="db-filter-btn px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-900 dark:bg-rose-500 text-white transition shrink-0">Все базы</button>
+          <button type="button" data-db-filter="cloud" class="db-filter-btn px-3 py-1.5 rounded-xl text-xs font-bold bg-warmgray dark:bg-slate-800 text-slate-600 dark:text-slate-300 transition shrink-0">Весь Firestore</button>
+          <button type="button" data-db-filter="malysh_accounts" class="db-filter-btn px-3 py-1.5 rounded-xl text-xs font-bold bg-warmgray dark:bg-slate-800 text-slate-600 dark:text-slate-300 transition shrink-0">malysh_accounts</button>
+          <button type="button" data-db-filter="accounts" class="db-filter-btn px-3 py-1.5 rounded-xl text-xs font-bold bg-warmgray dark:bg-slate-800 text-slate-600 dark:text-slate-300 transition shrink-0">accounts</button>
+          <button type="button" data-db-filter="local" class="db-filter-btn px-3 py-1.5 rounded-xl text-xs font-bold bg-warmgray dark:bg-slate-800 text-slate-600 dark:text-slate-300 transition shrink-0">Локальная БД</button>
+          <button type="button" data-db-filter="local_only" class="db-filter-btn px-3 py-1.5 rounded-xl text-xs font-bold bg-warmgray dark:bg-slate-800 text-slate-600 dark:text-slate-300 transition shrink-0">Только локальные</button>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <button type="button" id="admin-export-all-btn" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 hover:bg-stone-200/80 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition">
+            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+            <span>Экспорт JSON</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+        <div class="sm:col-span-2">
+          <input type="text" id="admin-search-input" placeholder="Поиск по логину (@login) или имени малыша..." class="w-full px-3.5 py-2.5 rounded-xl bg-warmgray/70 dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs sm:text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-rose-400" />
+        </div>
+        <div>
+          <select id="admin-sort-select" class="w-full px-3 py-2.5 rounded-xl bg-warmgray/70 dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs sm:text-sm font-semibold text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-rose-400">
+            <option value="created_desc">Сначала новые (создание)</option>
+            <option value="created_asc">Сначала старые (создание)</option>
+            <option value="updated_desc">По последней активности</option>
+            <option value="records_desc">По количеству данных ↓</option>
+            <option value="size_desc">По объёму (КБ) ↓</option>
+            <option value="login_asc">По логину (А–Я)</option>
+          </select>
+        </div>
+      </div>
+
+      <div id="admin-cloud-warning" class="hidden p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-xs text-amber-800 dark:text-amber-200"></div>
+    </section>
+
+    <!-- Панель объединения дубликатов и переноса из старой коллекции accounts -->
+    <section id="admin-merge-banner" class="hidden bg-amber-50/80 dark:bg-amber-950/30 rounded-3xl border border-amber-200/80 dark:border-amber-800/60 p-4 sm:p-5 space-y-3 shadow-2xs">
+      <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+        <div class="space-y-1 min-w-0">
+          <div class="font-display font-extrabold text-sm sm:text-base text-amber-900 dark:text-amber-200">
+            Найдены дубликаты или аккаунты в старой коллекции <code class="font-mono text-xs">accounts</code>
+          </div>
+          <p id="admin-merge-summary" class="text-xs text-amber-800/90 dark:text-amber-300/90 leading-relaxed"></p>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2 shrink-0">
+          <button type="button" id="admin-merge-dups-btn" class="hidden px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-2xs transition">
+            Объединить дубликаты
+          </button>
+          <button type="button" id="admin-migrate-all-btn" class="px-3.5 py-2 rounded-xl bg-slate-900 dark:bg-rose-500 hover:bg-slate-800 dark:hover:bg-rose-600 text-white text-xs font-bold shadow-2xs transition">
+            Объединить все в malysh_accounts
+          </button>
+        </div>
+      </div>
+
+      <label class="inline-flex items-center gap-2 text-xs font-semibold text-amber-900 dark:text-amber-200 cursor-pointer select-none">
+        <input type="checkbox" id="admin-merge-delete-legacy" class="w-4 h-4 accent-amber-600" />
+        <span>Удалить старые копии из коллекции <code class="font-mono">accounts</code> после успешного переноса в <code class="font-mono">malysh_accounts</code></span>
+      </label>
+    </section>
+
+    <!-- Список пользователей -->
+    <section class="bg-white dark:bg-slate-900 rounded-3xl border border-stone-200/70 dark:border-slate-800 shadow-2xs overflow-hidden">
+      <div class="px-4 sm:px-5 py-3.5 border-b border-stone-100 dark:border-slate-800 flex items-center justify-between gap-2">
+        <h2 class="font-display font-extrabold text-sm sm:text-base text-slate-900 dark:text-slate-100">
+          Пользователи и аккаунты
+        </h2>
+        <span id="admin-users-count-badge" class="px-2.5 py-0.5 rounded-full bg-warmgray dark:bg-slate-800 text-[11px] font-bold text-slate-500 dark:text-slate-400">
+          0 пользователей
+        </span>
+      </div>
+
+      <div id="admin-users-container" class="divide-y divide-stone-100 dark:divide-slate-800">
+        <div class="p-8 text-center text-xs text-slate-400">Загрузка списка пользователей...</div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ==================== МОДАЛЬНОЕ ОКНО: СМЕНА ПАРОЛЯ ПОЛЬЗОВАТЕЛЯ ==================== -->
+  <div id="modal-admin-password" class="fixed inset-0 z-50 hidden items-end sm:items-center justify-center bg-slate-900/45 dark:bg-black/70 backdrop-blur-xs p-0 sm:p-4 overflow-y-auto">
+    <div class="bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-xl border border-stone-100 dark:border-slate-800 space-y-4 my-auto animate-fade-in">
+      <div class="flex items-start justify-between gap-2">
+        <div>
+          <h3 class="font-display font-extrabold text-lg text-slate-900 dark:text-slate-100">Сменить пароль</h3>
+          <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            Аккаунт: <span id="pw-modal-login" class="font-bold text-rose-500">@user</span>
+            <span id="pw-modal-baby" class="text-slate-400"></span>
+          </p>
+        </div>
+        <button type="button" data-close-modal="modal-admin-password" aria-label="Закрыть" class="p-1.5 rounded-xl hover:bg-stone-100 dark:hover:bg-slate-800 text-slate-400">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <div id="pw-modal-targets" class="flex flex-wrap items-center gap-1.5 text-[11px]"></div>
+
+      <form id="admin-change-pw-form" class="space-y-3.5">
+        <input type="hidden" id="pw-modal-login-hidden" />
+
+        <div>
+          <div class="flex items-center justify-between mb-1">
+            <label for="pw-modal-new" class="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+              Новый пароль <span class="text-slate-400 font-normal">(мин. 4 символа)</span>
+            </label>
+            <button type="button" id="pw-generate-btn" class="text-[11px] font-bold text-rose-500 hover:text-rose-600 transition">
+              Сгенерировать
+            </button>
+          </div>
+          <div class="relative">
+            <input type="password" id="pw-modal-new" required minlength="4" maxlength="128" autocomplete="new-password" placeholder="Введите новый пароль" class="w-full px-3.5 py-2.5 pr-20 rounded-xl bg-warmgray/70 dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-rose-400" />
+            <div class="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+              <button type="button" id="pw-copy-btn" title="Скопировать пароль" class="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+              </button>
+              <button type="button" id="pw-toggle-vis-btn" title="Показать/скрыть пароль" class="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <label for="pw-modal-confirm" class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+            Подтвердите новый пароль
+          </label>
+          <input type="password" id="pw-modal-confirm" required minlength="4" maxlength="128" autocomplete="new-password" placeholder="Повторите новый пароль" class="w-full px-3.5 py-2.5 rounded-xl bg-warmgray/70 dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-rose-400" />
+        </div>
+
+        <label class="flex items-center gap-2.5 p-3 rounded-2xl bg-warmgray/70 dark:bg-slate-800/70 cursor-pointer">
+          <input type="checkbox" id="pw-modal-sync-cloud" checked class="w-4 h-4 accent-rose-500" />
+          <span class="text-xs font-semibold text-slate-700 dark:text-slate-200">Обновить пароль в облачной базе Firestore</span>
+        </label>
+
+        <div id="pw-modal-error" class="hidden p-3 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-xs font-medium text-rose-700 dark:text-rose-300"></div>
+
+        <div class="flex gap-2 pt-1">
+          <button type="button" data-close-modal="modal-admin-password" class="px-4 py-2.5 rounded-xl bg-warmgray dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold">
+            Отмена
+          </button>
+          <button type="submit" id="pw-modal-submit" class="flex-1 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold shadow-xs transition">
+            Сохранить новый пароль
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ==================== МОДАЛЬНОЕ ОКНО: ПОДРОБНЫЕ ДАННЫЕ ПОЛЬЗОВАТЕЛЯ ==================== -->
+  <div id="modal-admin-user-details" class="fixed inset-0 z-50 hidden items-end sm:items-center justify-center bg-slate-900/45 dark:bg-black/70 backdrop-blur-xs p-0 sm:p-4 overflow-y-auto">
+    <div class="bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl max-w-2xl w-full p-5 sm:p-6 shadow-xl border border-stone-100 dark:border-slate-800 space-y-4 my-auto animate-fade-in">
+      <div class="flex items-start justify-between gap-2">
+        <div>
+          <h3 id="details-modal-title" class="font-display font-extrabold text-lg text-slate-900 dark:text-slate-100">@user</h3>
+          <p id="details-modal-subtitle" class="text-xs text-slate-500 dark:text-slate-400 mt-0.5"></p>
+        </div>
+        <button type="button" data-close-modal="modal-admin-user-details" aria-label="Закрыть" class="p-1.5 rounded-xl hover:bg-stone-100 dark:hover:bg-slate-800 text-slate-400">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <div id="details-metrics-grid" class="grid grid-cols-2 sm:grid-cols-4 gap-2"></div>
+
+      <div id="details-meta-box" class="p-3.5 rounded-2xl bg-warmgray/70 dark:bg-slate-800/70 border border-stone-200/70 dark:border-slate-700 text-xs space-y-1.5"></div>
+
+      <div class="space-y-1.5">
+        <div class="flex items-center justify-between">
+          <span class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Структура записи (JSON, без хэша пароля)</span>
+          <div class="flex items-center gap-2">
+            <button type="button" id="details-sync-cloud-btn" class="hidden px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 text-[11px] font-bold hover:bg-emerald-100 transition">
+              Загрузить в Firestore
+            </button>
+            <button type="button" id="details-export-user-btn" class="px-2.5 py-1 rounded-lg bg-warmgray dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-[11px] font-bold hover:bg-stone-200 dark:hover:bg-slate-700 transition">
+              Скачать JSON
+            </button>
+          </div>
+        </div>
+        <pre id="details-json-preview" class="max-h-60 overflow-auto p-3 rounded-2xl bg-slate-900 text-slate-100 text-[11px] font-mono leading-relaxed"></pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- Всплывающее уведомление -->
+  <div id="toast-box" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-[80] pointer-events-none opacity-0 transition-opacity duration-200">
+    <div id="toast-text" class="px-4 py-2.5 rounded-2xl bg-slate-900/95 dark:bg-slate-100/95 text-white dark:text-slate-900 text-xs font-semibold shadow-lg text-center max-w-[90vw]"></div>
+  </div>
+
+  <script type="module" src="./js/admin.js"></script>
+</body>
+</html>

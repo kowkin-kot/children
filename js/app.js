@@ -71,6 +71,7 @@ import {
   deleteJournalLog,
   shiftJournalDate,
   resetJournalDateToToday,
+  jumpToLatestJournalDate,
   setRhythmDays,
   updateLiveTimersClock,
   renderJournalTab
@@ -91,7 +92,7 @@ import {
   deleteGrowthRecord,
   renderGrowthTab
 } from './tabs/growth.js';
-import { renderSymptoms } from './tabs/symptoms.js';
+import { renderSymptoms, setAdviceCategory } from './tabs/symptoms.js';
 import { addDiaryEntry, deleteDiaryEntry, renderDiaryTab } from './tabs/diary.js';
 
 function switchTab(tabName) {
@@ -186,6 +187,7 @@ Object.assign(window, {
   deleteJournalLog,
   shiftJournalDate,
   resetJournalDateToToday,
+  jumpToLatestJournalDate,
   setRhythmDays,
   setVaccineFilter,
   openToothModal,
@@ -197,6 +199,7 @@ Object.assign(window, {
   addGrowthRecord,
   deleteGrowthRecord,
   renderSymptoms,
+  setAdviceCategory,
   addDiaryEntry,
   deleteDiaryEntry,
   closeModal,
@@ -236,6 +239,7 @@ async function initApp() {
   if (savedLogin && localAccounts[savedLogin]) {
     store.currentAccountLogin = savedLogin;
     store.currentAccountPassHash = localAccounts[savedLogin].passHash || '';
+    store.currentAccountCreatedAt = localAccounts[savedLogin].createdAt || localAccounts[savedLogin].state?.accountCreatedAt || null;
     store.appState = mergeStateWithDefaults(localAccounts[savedLogin].state);
     enterMainApp();
     syncSavedSessionFromCloud(savedLogin);

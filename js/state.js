@@ -37,12 +37,187 @@ export function createDefaultState(babyName = '', babyDob = '') {
   };
 }
 
+function parseLegacyTimeMs(dateIso, hhmm) {
+  if (typeof hhmm === 'number' && Number.isFinite(hhmm)) return hhmm;
+  const datePart = typeof dateIso === 'string' && /^\d{4}-\d{2}-\d{2}/.test(dateIso)
+    ? dateIso.slice(0, 10)
+    : getTodayIso();
+  const timePart = typeof hhmm === 'string' && /^\d{1,2}:\d{2}/.test(hhmm)
+    ? hhmm.slice(0, 5)
+    : '12:00';
+  const parsed = Date.parse(`${datePart}T${timePart}:00`);
+  return Number.isFinite(parsed) ? parsed : Date.now();
+}
+
+function normalizeLegacyTrackerLog(item) {
+  if (!item || typeof item !== 'object') return null;
+
+  const startMs = typeof item.startTime === 'number' && Number.isFinite(item.startTime)
+    ? item.startTime
+    : parseLegacyTimeMs(item.date, item.startTime);
+  const durationMin = Math.max(0, Number(item.durationMin) || 0);
+  const endMs = typeof item.endTime === 'number' && Number.isFinite(item.endTime)
+    ? item.endTime
+    : startMs + durationMin * 60000;
+
+  const rawSub = String(item.subType || item.subtype || '');
+  const rawType = String(item.type || item.category || rawSub || 'care');
+
+  let type = rawType;
+  let subtype = item.subtype || item.subType || undefined;
+  let sleepType = item.sleepType || undefined;
+
+  if (rawSub === 'feed_left') {
+    type = 'feeding';
+    subtype = 'left';
+  } else if (rawSub === 'feed_right') {
+    type = 'feeding';
+    subtype = 'right';
+  } else if (rawSub === 'feed_bottle') {
+    type = 'feeding';
+    subtype = 'bottle';
+  } else if (rawSub === 'sleep_day') {
+    type = 'sleep';
+    sleepType = 'day';
+  } else if (rawSub === 'sleep_night') {
+    type = 'sleep';
+    sleepType = 'night';
+  } else if (type === 'feed') {
+    type = 'feeding';
+  } else if (type === 'care' && rawSub) {
+    type = rawSub;
+  }
+
+  const labelMap = {
+    vitamin: 'Витамин D3',
+    bath: 'Купание',
+    diaper_wet: 'Мокрый подгузник',
+    diaper_dirty: 'Грязный подгузник',
+    pumping: 'Сцеживание',
+    sleep: sleepType === 'night' ? 'Ночной сон' : sleepType === 'day' ? 'Дневной сон' : 'Сон',
+    walk: 'Прогулка',
+    feeding: subtype === 'left'
+      ? 'Левая грудь'
+      : subtype === 'right'
+        ? 'Правая грудь'
+        : subtype === 'bottle'
+          ? 'Бутылочка'
+          : 'Кормление',
+    feeding_solids: 'Прикорм'
+  };
+
+  let title = typeof item.title === 'string' && item.title.trim() ? item.title.trim() : '';
+  if (!title && typeof item.label === 'string' && item.label.trim()) {
+    const det = typeof item.detail === 'string' && item.detail.trim() ? ` (${item.detail.trim()})` : '';
+    title = `${item.label.trim()}${det}`;
+  }
+  if (!title) {
+    const baseLabel = labelMap[type] || 'Запись ухода';
+    title = durationMin > 0 ? `${baseLabel} (${durationMin} мин)` : baseLabel;
+  }
+  if (typeof item.note === 'string' && item.note.trim() && !title.includes(item.note.trim())) {
+    title = `${title} • ${item.note.trim()}`;
+  }
+
+  const normalized = {
+    id: item.id || `log_${startMs}_${type}`,
+    type,
+    title,
+    startTime: startMs,
+    endTime: endMs,
+    durationMin
+  };
+  if (subtype) normalized.subtype = subtype;
+  if (sleepType) normalized.sleepType = sleepType;
+  if (item.note) normalized.note = item.note;
+  return normalized;
+}
+
+const LEGACY_VACCINE_KEY_MAP = {
+  med_birth_hep: 'v_birth_hepb',
+  med_birth_bcg: 'v_birth_bcg',
+  med_1m_all: 'c_1m_all',
+  med_1m_hep: 'v_1m_hepb',
+  med_2m_pneumo: 'v_2m_pneumo',
+  med_3m_ortho: 'c_3m_ortho',
+  med_3m_akds: 'v_3m_akds',
+  med_45m_akds: 'v_45m_akds',
+  med_6m_akds: 'v_6m_akds',
+  med_9m_dentist: 'c_9m_dentist',
+  med_12m_all: 'c_12m_all',
+  med_12m_mmr: 'v_12m_mmr',
+  med_15m_pneumo: 'v_15m_pneumo',
+  med_18m_akds: 'v_18m_akds',
+  med_24m_dentist: 'c_24m_dentist',
+  med_36m_all: 'c_36m_all'
+};
+
+function normalizeVaccinesCollection(rawObj) {
+  const out = {};
+  if (!rawObj || typeof rawObj !== 'object') return out;
+  for (const [k, v] of Object.entries(rawObj)) {
+    if (!v || typeof v !== 'object') continue;
+    const mappedKey = LEGACY_VACCINE_KEY_MAP[k] || k;
+    out[mappedKey] = {
+      done: Boolean(v.done),
+      date: v.date || v.actualDate || '',
+      drug: v.drug || v.drugName || '',
+      series: v.series || v.batchNumber || '',
+      note: v.note || ''
+    };
+  }
+  return out;
+}
+
 export function mergeStateWithDefaults(rawState) {
-  const base = createDefaultState(rawState?.babyName || 'Малыш', rawState?.babyDob || getTodayIso());
+  const legacyProfile = (rawState && typeof rawState.profile === 'object' && rawState.profile) ? rawState.profile : {};
+  const resolvedBabyName = rawState?.babyName || legacyProfile.name || 'Малыш';
+  const resolvedBabyDob = rawState?.babyDob || legacyProfile.dob || legacyProfile.birthDate || getTodayIso();
+  const resolvedGender = rawState?.babyGender || (legacyProfile.gender === 'boy' ? 'boy' : 'girl');
+
+  const base = createDefaultState(resolvedBabyName, resolvedBabyDob);
   if (!rawState || typeof rawState !== 'object') return base;
+
+  // Объединяем записи журнала (актуальные journalLogs + устаревшие trackerLogs)
+  const combinedLogsMap = new Map();
+  if (Array.isArray(rawState.trackerLogs)) {
+    for (const item of rawState.trackerLogs) {
+      const norm = normalizeLegacyTrackerLog(item);
+      if (norm && norm.id) combinedLogsMap.set(norm.id, norm);
+    }
+  }
+  if (Array.isArray(rawState.journalLogs)) {
+    for (const item of rawState.journalLogs) {
+      const norm = normalizeLegacyTrackerLog(item);
+      if (norm && norm.id) combinedLogsMap.set(norm.id, norm);
+    }
+  }
+  const mergedJournalLogs = Array.from(combinedLogsMap.values())
+    .sort((a, b) => (b.startTime || 0) - (a.startTime || 0));
+
+  // Объединяем записи дневника (diaryEntries + устаревшие diaryNotes)
+  const combinedDiaryMap = new Map();
+  for (const arr of [rawState.diaryNotes, rawState.diaryEntries]) {
+    if (!Array.isArray(arr)) continue;
+    for (const entry of arr) {
+      if (!entry || typeof entry !== 'object') continue;
+      const eid = entry.id || `diary_${entry.date || ''}_${entry.title || ''}`;
+      combinedDiaryMap.set(eid, {
+        id: eid,
+        date: entry.date || getTodayIso(),
+        tag: entry.tag || 'Достижение',
+        title: entry.title || '',
+        text: entry.text || ''
+      });
+    }
+  }
+
   return {
     ...base,
     ...rawState,
+    babyName: resolvedBabyName,
+    babyDob: resolvedBabyDob,
+    babyGender: resolvedGender,
     timers: {
       feeding: { ...base.timers.feeding, ...(rawState.timers?.feeding || {}) },
       sleep: { ...base.timers.sleep, ...(rawState.timers?.sleep || {}) },
@@ -54,12 +229,154 @@ export function mergeStateWithDefaults(rawState) {
       snoozedUntil: { ...(rawState.notifications?.snoozedUntil || {}) },
       history: Array.isArray(rawState.notifications?.history) ? rawState.notifications.history : []
     },
-    completedMilestones: rawState.completedMilestones || {},
-    journalLogs: Array.isArray(rawState.journalLogs) ? rawState.journalLogs : [],
-    teethMap: rawState.teethMap || {},
-    vaccinesMap: rawState.vaccinesMap || {},
+    completedMilestones: {
+      ...(rawState.checklistDone || {}),
+      ...(rawState.completedMilestones || {})
+    },
+    journalLogs: mergedJournalLogs,
+    teethMap: {
+      ...(rawState.toothRecords || {}),
+      ...(rawState.teeth || {}),
+      ...(rawState.teethMap || {})
+    },
+    vaccinesMap: {
+      ...normalizeVaccinesCollection(rawState.medicalRecords),
+      ...normalizeVaccinesCollection(rawState.vaccines),
+      ...normalizeVaccinesCollection(rawState.vaccinesMap)
+    },
     growthRecords: Array.isArray(rawState.growthRecords) ? rawState.growthRecords : [],
-    diaryEntries: Array.isArray(rawState.diaryEntries) ? rawState.diaryEntries : []
+    diaryEntries: Array.from(combinedDiaryMap.values())
+  };
+}
+
+export function getStateRecordCount(rawState) {
+  const norm = mergeStateWithDefaults(rawState);
+  const journalCount = Array.isArray(norm.journalLogs) ? norm.journalLogs.length : 0;
+  const diaryCount = Array.isArray(norm.diaryEntries) ? norm.diaryEntries.length : 0;
+  const growthCount = Array.isArray(norm.growthRecords) ? norm.growthRecords.length : 0;
+  const milestonesCount = norm.completedMilestones && typeof norm.completedMilestones === 'object'
+    ? Object.values(norm.completedMilestones).filter(Boolean).length
+    : 0;
+  const teethCount = norm.teethMap && typeof norm.teethMap === 'object'
+    ? Object.values(norm.teethMap).filter(t => t && (t.erupted || t.date)).length
+    : 0;
+  const vaccinesCount = norm.vaccinesMap && typeof norm.vaccinesMap === 'object'
+    ? Object.values(norm.vaccinesMap).filter(v => v && v.done).length
+    : 0;
+  return journalCount + diaryCount + growthCount + milestonesCount + teethCount + vaccinesCount;
+}
+
+// Безопасное объединение нескольких состояний (от более старого к более новому) без потери записей
+export function mergeAccountStates(statesList) {
+  const rawList = Array.isArray(statesList)
+    ? statesList.filter(s => s && typeof s === 'object')
+    : [];
+
+  if (rawList.length === 0) {
+    return {
+      state: createDefaultState(),
+      hasExplicitName: false,
+      hasExplicitDob: false
+    };
+  }
+
+  const normalizedList = rawList.map(raw => ({
+    raw,
+    norm: mergeStateWithDefaults(raw)
+  }));
+  const latestNorm = normalizedList[normalizedList.length - 1].norm;
+
+  let explicitBabyName = '';
+  let explicitBabyDob = '';
+  let explicitGender = '';
+
+  const journalMap = new Map();
+  const diaryMap = new Map();
+  const growthMap = new Map();
+  const milestones = {};
+  const teethMap = {};
+  const vaccinesMap = {};
+  const notifHistoryMap = new Map();
+
+  for (const { raw, norm } of normalizedList) {
+    const rawProfile = raw.profile && typeof raw.profile === 'object' ? raw.profile : {};
+    const candidateName = raw.babyName || rawProfile.name || '';
+    if (candidateName && String(candidateName).trim()) {
+      explicitBabyName = String(candidateName).trim();
+    }
+    const candidateDob = raw.babyDob || rawProfile.dob || rawProfile.birthDate || '';
+    if (candidateDob && String(candidateDob).trim()) {
+      explicitBabyDob = String(candidateDob).trim();
+    }
+    const candidateGender = raw.babyGender || rawProfile.gender || '';
+    if (candidateGender === 'boy' || candidateGender === 'girl') {
+      explicitGender = candidateGender;
+    }
+
+    for (const item of norm.journalLogs || []) {
+      const key = item.id || `${item.type}_${item.startTime}_${item.endTime || 0}`;
+      journalMap.set(key, item);
+    }
+    for (const entry of norm.diaryEntries || []) {
+      const key = entry.id || `${entry.date}_${entry.title}`;
+      diaryMap.set(key, entry);
+    }
+    for (const g of norm.growthRecords || []) {
+      if (!g || typeof g !== 'object') continue;
+      const key = g.id || `${g.date || ''}_${g.weight || ''}_${g.height || ''}_${g.head || ''}`;
+      growthMap.set(key, g);
+    }
+    for (const [k, val] of Object.entries(norm.completedMilestones || {})) {
+      if (val) milestones[k] = true;
+    }
+    for (const [k, val] of Object.entries(norm.teethMap || {})) {
+      if (val && typeof val === 'object') {
+        teethMap[k] = { ...(teethMap[k] || {}), ...val };
+      }
+    }
+    for (const [k, val] of Object.entries(norm.vaccinesMap || {})) {
+      if (val && typeof val === 'object') {
+        vaccinesMap[k] = { ...(vaccinesMap[k] || {}), ...val };
+      }
+    }
+    for (const h of norm.notifications?.history || []) {
+      if (!h || typeof h !== 'object') continue;
+      const key = `${h.ts || 0}_${h.title || ''}_${h.type || ''}`;
+      notifHistoryMap.set(key, h);
+    }
+  }
+
+  const combined = {
+    ...latestNorm,
+    babyName: explicitBabyName || latestNorm.babyName || 'Малыш',
+    babyDob: explicitBabyDob || latestNorm.babyDob || getTodayIso(),
+    babyGender: explicitGender || latestNorm.babyGender || 'girl',
+    journalLogs: Array.from(journalMap.values()).sort((a, b) => (b.startTime || 0) - (a.startTime || 0)),
+    diaryEntries: Array.from(diaryMap.values()),
+    growthRecords: Array.from(growthMap.values()),
+    completedMilestones: milestones,
+    teethMap,
+    vaccinesMap,
+    notifications: {
+      ...(latestNorm.notifications || {}),
+      history: Array.from(notifHistoryMap.values()).sort((a, b) => (b.ts || 0) - (a.ts || 0))
+    }
+  };
+
+  // Очищаем устаревшие поля дублёры после успешной нормализации в актуальный формат
+  delete combined.profile;
+  delete combined.trackerLogs;
+  delete combined.diaryNotes;
+  delete combined.checklistDone;
+  delete combined.toothRecords;
+  delete combined.teeth;
+  delete combined.medicalRecords;
+  delete combined.vaccines;
+
+  return {
+    state: combined,
+    hasExplicitName: Boolean(explicitBabyName),
+    hasExplicitDob: Boolean(explicitBabyDob)
   };
 }
 
@@ -68,6 +385,7 @@ export const store = {
   appState: createDefaultState(),
   currentAccountLogin: null,
   currentAccountPassHash: null,
+  currentAccountCreatedAt: null,
   authMode: 'register',
   isRemoteSyncApplying: false,
   pendingSyncState: false,
@@ -102,10 +420,24 @@ export function readLocalAccounts() {
   }
 }
 
-export function writeLocalAccount(login, passHash, stateObj) {
+export function writeLocalAccount(login, passHash, stateObj, extraMeta = {}) {
   try {
     const all = readLocalAccounts();
-    all[login] = { passHash, state: stateObj, updatedAt: Date.now() };
+    const prev = all[login] || {};
+    const createdAt = extraMeta.createdAt || prev.createdAt || stateObj?.accountCreatedAt || null;
+    const record = {
+      login,
+      passHash: passHash || prev.passHash || '',
+      state: stateObj,
+      updatedAt: extraMeta.updatedAt || Date.now()
+    };
+    if (createdAt) {
+      record.createdAt = createdAt;
+    }
+    if (extraMeta.passwordChangedAt || prev.passwordChangedAt) {
+      record.passwordChangedAt = extraMeta.passwordChangedAt || prev.passwordChangedAt;
+    }
+    all[login] = record;
     localStorage.setItem(LOCAL_ACCOUNTS_KEY, JSON.stringify(all));
   } catch (_) {}
 }

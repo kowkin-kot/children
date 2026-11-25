@@ -506,6 +506,20 @@ export function resetJournalDateToToday() {
   renderJournalTab();
 }
 
+export function jumpToLatestJournalDate() {
+  const logs = store.appState.journalLogs || [];
+  if (logs.length === 0) return;
+  let latestTs = 0;
+  for (const l of logs) {
+    const t = Number(l?.startTime || l?.endTime || 0);
+    if (t > latestTs) latestTs = t;
+  }
+  if (!latestTs) return;
+  const d = new Date(latestTs);
+  store.selectedJournalDateIso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  renderJournalTab();
+}
+
 export function deleteJournalLog(logId) {
   store.appState.journalLogs = (store.appState.journalLogs || []).filter(l => l.id !== logId);
   saveAppState();
@@ -749,11 +763,34 @@ export function renderJournalTab() {
   }
 
   if (dayLogs.length === 0) {
+    const allLogs = appState.journalLogs || [];
+    let latestJumpHtml = '';
+    if (allLogs.length > 0) {
+      let latestTs = 0;
+      for (const l of allLogs) {
+        const t = Number(l?.startTime || l?.endTime || 0);
+        if (t > latestTs) latestTs = t;
+      }
+      if (latestTs) {
+        const ld = new Date(latestTs);
+        const latestIso = `${ld.getFullYear()}-${String(ld.getMonth() + 1).padStart(2, '0')}-${String(ld.getDate()).padStart(2, '0')}`;
+        if (latestIso !== store.selectedJournalDateIso) {
+          latestJumpHtml = `<button type="button" onclick="jumpToLatestJournalDate()" class="px-3 py-1.5 rounded-xl bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-300 font-semibold hover:bg-rose-100 dark:hover:bg-rose-900/60 transition">Открыть записи за ${escapeHtml(formatDateRu(latestIso))} (всего: ${allLogs.length})</button>`;
+        }
+      }
+    }
+
     listEl.innerHTML = isToday
-      ? `<div class="py-8 text-center text-xs text-slate-400">Записей за сегодня пока нет. Запустите таймер или нажмите «Добавить вручную».</div>`
+      ? `<div class="py-8 text-center text-xs text-slate-400 space-y-2.5">
+           <div>Записей за сегодня пока нет. Запустите таймер или нажмите «Добавить вручную».</div>
+           ${latestJumpHtml ? `<div>${latestJumpHtml}</div>` : ''}
+         </div>`
       : `<div class="py-8 text-center text-xs text-slate-400 space-y-2">
-           <div>Записей за ${formatDateRu(store.selectedJournalDateIso)} нет.</div>
-           <button type="button" onclick="resetJournalDateToToday()" class="px-3 py-1.5 rounded-xl bg-warmgray dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-semibold hover:bg-rose-50 dark:hover:bg-rose-950/50 transition">Вернуться к сегодняшнему дню</button>
+           <div>Записей за ${escapeHtml(formatDateRu(store.selectedJournalDateIso))} нет.</div>
+           <div class="flex flex-wrap items-center justify-center gap-2">
+             <button type="button" onclick="resetJournalDateToToday()" class="px-3 py-1.5 rounded-xl bg-warmgray dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-semibold hover:bg-rose-50 dark:hover:bg-rose-950/50 transition">Вернуться к сегодняшнему дню</button>
+             ${latestJumpHtml}
+           </div>
          </div>`;
     return;
   }
