@@ -20,7 +20,13 @@ import {
   showToast
 } from './utils.js';
 import { saveAppState, createFamilyInviteCode } from './firebase.js';
-import { updateNetworkStatusUI } from './pwa.js';
+import {
+  updateNetworkStatusUI,
+  isStandalonePwa,
+  registerAppServiceWorker,
+  showSystemNotification,
+  syncScheduledSystemNotifications
+} from './pwa.js';
 
 export function renderHeaderBabyInfo() {
   const nameEl = document.getElementById('header-baby-name');
@@ -205,38 +211,303 @@ function playGentleChime() {
   } catch (_) {}
 }
 
+const PUSH_DEDUP_STORAGE_KEY = 'malysh_plus_push_dedup_v1';
+const memoryPushDedup = new Map();
 let lastChimedKey = '';
 
-export function evaluateSmartNotifications() {
-  const banner = document.getElementById('smart-notif-banner');
-  const badge = document.getElementById('header-notif-badge');
-  if (!banner || !store.currentAccountLogin) return;
+function readPushDedupMap() {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const raw = localStorage.getItem(PUSH_DEDUP_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') return parsed;
+      }
+    }
+  } catch (_) {}
+  const fallback = {};
+  for (const [k, v] of memoryPushDedup.entries()) {
+    fallback[k] = v;
+  }
+  return fallback;
+}
 
-  const appState = store.appState;
-  const m = computeHereAndNowMetrics();
-  const now = Date.now();
-  const snoozed = appState.notifications?.snoozedUntil || {};
+function writePushDedupEntry(key, signature, now) {
+  memoryPushDedup.set(key, { signature, sentAt: now });
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const map = readPushDedupMap();
+      map[key] = { signature, sentAt: now };
+      localStorage.setItem(PUSH_DEDUP_STORAGE_KEY, JSON.stringify(map));
+    }
+  } catch (_) {}
+}
+
+function shouldDispatchSystemPush(key, signature, now = Date.now(), cooldownMs = 30 * 60000) {
+  const map = readPushDedupMap();
+  const prev = map[key] || memoryPushDedup.get(key);
+  if (!prev) return true;
+  if (prev.signature !== signature) return true;
+  return (now - Number(prev.sentAt || 0)) >= cooldownMs;
+}
+
+export function getNotificationPlatformInfo() {
+  const ua = typeof navigator !== 'undefined' ? (navigator.userAgent || '') : '';
+  const isIos = /iphone|ipad|ipod/i.test(ua) || (typeof navigator !== 'undefined' && navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isAndroid = /android/i.test(ua);
+  const standalone = typeof window !== 'undefined' ? isStandalonePwa() : false;
+  const supported = typeof window !== 'undefined' && 'Notification' in window;
+  const permission = supported ? Notification.permission : 'unsupported';
+  let inIframe = false;
+  try {
+    inIframe = typeof window !== 'undefined' && window.self !== window.top;
+  } catch (_) {
+    inIframe = true;
+  }
+  return { isIos, isAndroid, standalone, supported, permission, inIframe };
+}
+
+export function buildUpcomingNotificationSchedule(appState, metrics, now = Date.now()) {
+  const items = [];
+  if (!appState || !metrics) return items;
+  const notifs = appState.notifications || {};
+  const snoozed = notifs.snoozedUntil || {};
+  const babyName = (appState.babyName || 'Малыш').trim();
+
+  if (notifs.feeding && !appState.timers?.feeding?.active && metrics.lastFeedTs) {
+    const dueTs = metrics.lastFeedTs + metrics.norms.feedIntervalMin * 60000;
+    const snoozeTs = Number(snoozed.feeding || 0);
+    const triggerAt = Math.max(dueTs, snoozeTs);
+    if (triggerAt > now) {
+      items.push({
+        key: 'feeding',
+        tag: `malysh-feeding-${metrics.lastFeedTs}`,
+        triggerAt,
+        title: `${babyName}: пора покормить`,
+        body: `Прошло ~${formatMinutesHuman(Math.round((triggerAt - metrics.lastFeedTs) / 60000))} с прошлого кормления`,
+        tab: 'journal'
+      });
+    }
+  }
+
+  if (notifs.sleep && !metrics.sleepActive && metrics.lastWakeStartTs) {
+    const dueTs = metrics.lastWakeStartTs + metrics.adjustedWakeWindowMin * 60000;
+    const snoozeTs = Number(snoozed.sleep || 0);
+    const triggerAt = Math.max(dueTs, snoozeTs);
+    if (triggerAt > now) {
+      items.push({
+        key: 'sleep',
+        tag: `malysh-sleep-${metrics.lastWakeStartTs}`,
+        triggerAt,
+        title: `${babyName}: окно бодрствования заканчивается`,
+        body: `Рекомендуется уложить спать около ${formatClockHHMM(dueTs)}`,
+        tab: 'journal'
+      });
+    }
+  }
+
+  if (notifs.diaper && metrics.lastDiaperTs && metrics.norms.diaperIntervalMin) {
+    const dueTs = metrics.lastDiaperTs + metrics.norms.diaperIntervalMin * 60000;
+    const snoozeTs = Number(snoozed.diaper || 0);
+    const triggerAt = Math.max(dueTs, snoozeTs);
+    if (triggerAt > now) {
+      items.push({
+        key: 'diaper',
+        tag: `malysh-diaper-${metrics.lastDiaperTs}`,
+        triggerAt,
+        title: `${babyName}: пора проверить подгузник`,
+        body: `Прошло ~${formatMinutesHuman(Math.round((triggerAt - metrics.lastDiaperTs) / 60000))} с прошлой отметки`,
+        tab: 'journal'
+      });
+    }
+  }
+
+  return items;
+}
+
+export function evaluateActiveNotificationAlerts(appState, metrics, now = Date.now()) {
   const alerts = [];
+  if (!appState || !metrics) return alerts;
+  const notifs = appState.notifications || {};
+  const snoozed = notifs.snoozedUntil || {};
+  const babyName = (appState.babyName || 'Малыш').trim();
 
-  if (appState.notifications?.feeding && !appState.timers?.feeding?.active && m.sinceFeedMin !== null && m.sinceFeedMin >= m.norms.feedIntervalMin) {
+  if (notifs.feeding && !appState.timers?.feeding?.active && metrics.sinceFeedMin !== null && metrics.sinceFeedMin >= metrics.norms.feedIntervalMin) {
     if (!snoozed.feeding || now > snoozed.feeding) {
       alerts.push({
         key: 'feeding',
-        title: `Пора покормить малыша (прошло ${formatMinutesHuman(m.sinceFeedMin)})`,
+        signature: `feeding_${metrics.lastFeedTs || 0}_${snoozed.feeding || 0}`,
+        title: `Пора покормить малыша (прошло ${formatMinutesHuman(metrics.sinceFeedMin)})`,
+        pushTitle: `${babyName}: пора покормить`,
+        pushBody: `С прошлого кормления прошло ${formatMinutesHuman(metrics.sinceFeedMin)} (норма ~${formatMinutesHuman(metrics.norms.feedIntervalMin)}).`,
         actionLabel: 'Начать кормление'
       });
     }
   }
 
-  if (appState.notifications?.sleep && !m.sleepActive && m.countdownMin !== null && m.countdownMin <= 0) {
+  if (notifs.sleep && !metrics.sleepActive && metrics.countdownMin !== null && metrics.countdownMin <= 0) {
     if (!snoozed.sleep || now > snoozed.sleep) {
       alerts.push({
         key: 'sleep',
-        title: `Время укладывать спать (бодрствует ${formatMinutesHuman(m.wakeMin)})`,
+        signature: `sleep_${metrics.lastWakeStartTs || 0}_${snoozed.sleep || 0}`,
+        title: `Время укладывать спать (бодрствует ${formatMinutesHuman(metrics.wakeMin)})`,
+        pushTitle: `${babyName}: пора укладывать спать`,
+        pushBody: `Малыш бодрствует уже ${formatMinutesHuman(metrics.wakeMin)} при норме окна ${formatMinutesHuman(metrics.adjustedWakeWindowMin)}.`,
         actionLabel: 'Малыш уснул'
       });
     }
   }
+
+  if (notifs.diaper && metrics.sinceDiaperMin !== null && metrics.norms.diaperIntervalMin && metrics.sinceDiaperMin >= metrics.norms.diaperIntervalMin) {
+    if (!snoozed.diaper || now > snoozed.diaper) {
+      alerts.push({
+        key: 'diaper',
+        signature: `diaper_${metrics.lastDiaperTs || 0}_${snoozed.diaper || 0}`,
+        title: `Пора проверить подгузник (прошло ${formatMinutesHuman(metrics.sinceDiaperMin)})`,
+        pushTitle: `${babyName}: проверьте подгузник`,
+        pushBody: `С последней смены подгузника прошло ${formatMinutesHuman(metrics.sinceDiaperMin)}.`,
+        actionLabel: 'Открыть журнал'
+      });
+    }
+  }
+
+  return alerts;
+}
+
+function recordNotificationHistoryEntries(alerts, now = Date.now()) {
+  if (!store.appState.notifications) store.appState.notifications = {};
+  if (!Array.isArray(store.appState.notifications.history)) {
+    store.appState.notifications.history = [];
+  }
+  const history = store.appState.notifications.history;
+  let added = false;
+
+  for (const alert of alerts) {
+    const alreadyLoggedRecently = history.some(
+      (h) => h && h.type === alert.key && h.signature === alert.signature && (now - Number(h.ts || 0)) < 30 * 60000
+    );
+    if (!alreadyLoggedRecently) {
+      history.unshift({
+        ts: now,
+        type: alert.key,
+        signature: alert.signature,
+        title: alert.title
+      });
+      added = true;
+    }
+  }
+
+  if (added) {
+    store.appState.notifications.history = history.slice(0, 30);
+    saveAppState();
+    renderNotifHistoryList();
+  }
+}
+
+export function renderNotifHistoryList() {
+  const list = document.getElementById('notif-history-list');
+  if (!list) return;
+  const history = Array.isArray(store.appState.notifications?.history)
+    ? store.appState.notifications.history
+    : [];
+
+  if (history.length === 0) {
+    list.innerHTML = '<div class="py-3 text-center text-slate-400 text-xs">История пуста</div>';
+    return;
+  }
+
+  list.innerHTML = history.slice(0, 20).map((item) => {
+    const d = new Date(item.ts || Date.now());
+    const dayStr = `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const timeStr = formatClockHHMM(d.getTime());
+    return `
+      <div class="py-2 flex items-start justify-between gap-2 text-xs">
+        <span class="text-slate-700 dark:text-slate-200 font-medium">${escapeHtml(item.title || 'Напоминание')}</span>
+        <span class="text-[11px] text-slate-400 shrink-0 tabular-nums">${dayStr} ${timeStr}</span>
+      </div>
+    `;
+  }).join('');
+}
+
+export function updatePushPermissionUI() {
+  const lbl = document.getElementById('push-status-label');
+  const hintEl = document.getElementById('push-platform-hint');
+  const btn = document.getElementById('push-perm-btn');
+  const info = getNotificationPlatformInfo();
+
+  if (hintEl) {
+    if (info.isIos && !info.standalone) {
+      hintEl.textContent = 'На iPhone системные уведомления работают только после добавления на экран «Домой»: нажмите «Поделиться» в Safari → «На экран „Домой“» и откройте иконку.';
+      hintEl.classList.remove('hidden');
+    } else if (info.inIframe) {
+      hintEl.textContent = 'В окне предпросмотра браузер может ограничивать Push-уведомления — откройте приложение на телефоне в отдельной вкладке или как PWA.';
+      hintEl.classList.remove('hidden');
+    } else if (info.permission === 'denied') {
+      hintEl.textContent = 'Уведомления запрещены в настройках сайта/телефона. Нажмите на значок настроек слева от адреса сайта и разрешите «Уведомления».';
+      hintEl.classList.remove('hidden');
+    } else {
+      hintEl.textContent = '';
+      hintEl.classList.add('hidden');
+    }
+  }
+
+  if (!info.supported) {
+    if (lbl) {
+      lbl.textContent = info.isIos && !info.standalone
+        ? 'На iPhone установите приложение на экран «Домой»'
+        : 'Браузер не поддерживает системные уведомления';
+      lbl.className = 'text-[11px] text-amber-600 dark:text-amber-400 font-medium';
+    }
+    if (btn) {
+      btn.textContent = info.isIos && !info.standalone ? 'Как на iPhone' : 'Недоступно';
+      btn.disabled = !(info.isIos && !info.standalone);
+    }
+    return;
+  }
+
+  if (info.permission === 'granted') {
+    if (lbl) {
+      lbl.textContent = 'Системные уведомления включены';
+      lbl.className = 'text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold';
+    }
+    if (btn) {
+      btn.textContent = 'Включено';
+      btn.className = 'px-3 py-1.5 rounded-xl bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 text-[11px] font-bold transition shrink-0';
+    }
+  } else if (info.permission === 'denied') {
+    if (lbl) {
+      lbl.textContent = 'Заблокировано в настройках браузера';
+      lbl.className = 'text-[11px] text-rose-500 font-semibold';
+    }
+    if (btn) {
+      btn.textContent = 'Как включить';
+      btn.className = 'px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-[11px] font-bold transition shrink-0';
+    }
+  } else {
+    if (lbl) {
+      lbl.textContent = 'Уведомления на экран телефона / ПК (пока не разрешены)';
+      lbl.className = 'text-[11px] text-slate-500';
+    }
+    if (btn) {
+      btn.textContent = 'Включить';
+      btn.className = 'px-3 py-1.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-[11px] font-bold transition shrink-0';
+    }
+  }
+}
+
+export function evaluateSmartNotifications() {
+  const banner = document.getElementById('smart-notif-banner');
+  const badge = document.getElementById('header-notif-badge');
+  if (!store.currentAccountLogin) return;
+
+  const appState = store.appState;
+  const m = computeHereAndNowMetrics();
+  const now = Date.now();
+  const alerts = evaluateActiveNotificationAlerts(appState, m, now);
+  const upcoming = buildUpcomingNotificationSchedule(appState, m, now);
+
+  // Синхронизируем будущие напоминания с Service Worker (чтобы сработали в фоне/при закрытой вкладке)
+  syncScheduledSystemNotifications(upcoming).catch(() => {});
 
   if (badge) {
     if (alerts.length > 0) {
@@ -248,8 +519,27 @@ export function evaluateSmartNotifications() {
   }
 
   if (alerts.length === 0) {
-    banner.classList.add('hidden');
+    if (banner) banner.classList.add('hidden');
     return;
+  }
+
+  recordNotificationHistoryEntries(alerts, now);
+
+  // Отправляем системные Push-уведомления на телефон / ПК (с защитой от повторов чаще 1 раза в 30 мин)
+  if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+    for (const alert of alerts) {
+      if (shouldDispatchSystemPush(alert.key, alert.signature, now)) {
+        writePushDedupEntry(alert.key, alert.signature, now);
+        showSystemNotification({
+          title: alert.pushTitle || 'Малыш+',
+          body: alert.pushBody || alert.title,
+          tag: `malysh-${alert.key}`,
+          key: alert.key,
+          tab: 'journal',
+          requireInteraction: alert.key === 'sleep' || alert.key === 'feeding'
+        }).catch(() => {});
+      }
+    }
   }
 
   const top = alerts[0];
@@ -259,27 +549,30 @@ export function evaluateSmartNotifications() {
     playGentleChime();
   }
 
-  banner.classList.remove('hidden');
-  banner.innerHTML = `
-    <div class="bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800/70 rounded-3xl p-3.5 sm:p-4 flex flex-wrap items-center justify-between gap-2.5 animate-fade-in">
-      <div class="flex items-center gap-2.5 min-w-0">
-        <span class="w-8 h-8 rounded-xl bg-rose-500 text-white flex items-center justify-center shrink-0">
-          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
-        </span>
-        <span class="text-xs sm:text-sm font-bold text-rose-900 dark:text-rose-100">${top.title}</span>
+  if (banner) {
+    banner.classList.remove('hidden');
+    banner.innerHTML = `
+      <div class="bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800/70 rounded-3xl p-3.5 sm:p-4 flex flex-wrap items-center justify-between gap-2.5 animate-fade-in">
+        <div class="flex items-center gap-2.5 min-w-0">
+          <span class="w-8 h-8 rounded-xl bg-rose-500 text-white flex items-center justify-center shrink-0">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+          </span>
+          <span class="text-xs sm:text-sm font-bold text-rose-900 dark:text-rose-100">${escapeHtml(top.title)}</span>
+        </div>
+        <div class="flex items-center gap-1.5 shrink-0">
+          <button type="button" onclick="handleSmartNotifAction('${top.key}')" class="px-3 py-1.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold transition">${escapeHtml(top.actionLabel)}</button>
+          <button type="button" onclick="snoozeSmartNotif('${top.key}')" class="px-2.5 py-1.5 rounded-xl bg-white/80 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-semibold transition">Через 20 мин</button>
+        </div>
       </div>
-      <div class="flex items-center gap-1.5 shrink-0">
-        <button type="button" onclick="handleSmartNotifAction('${top.key}')" class="px-3 py-1.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold transition">${top.actionLabel}</button>
-        <button type="button" onclick="snoozeSmartNotif('${top.key}')" class="px-2.5 py-1.5 rounded-xl bg-white/80 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-semibold transition">Через 20 мин</button>
-      </div>
-    </div>
-  `;
+    `;
+  }
 }
 
 export function handleSmartNotifAction(key) {
   hooks.switchTab('journal');
   if (key === 'feeding' && !store.appState.timers?.feeding?.active) hooks.toggleTimer('feeding');
   if (key === 'sleep' && !store.appState.timers?.sleep?.active) hooks.toggleTimer('sleep');
+  if (key === 'diaper') showToast('Отметьте смену подгузника в быстром уходе журнала');
 }
 
 export function snoozeSmartNotif(key) {
@@ -295,15 +588,20 @@ export function openNotificationsModal() {
   const sub = document.getElementById('notif-norms-subtitle');
   const fDesc = document.getElementById('notif-feed-desc');
   const sDesc = document.getElementById('notif-sleep-desc');
+  const dDesc = document.getElementById('notif-diaper-desc');
   if (sub) sub.textContent = `Возрастная норма: кормление ~${formatMinutesHuman(norms.feedIntervalMin)}, бодрствование ~${formatMinutesHuman(norms.wakeWindowMin)}`;
   if (fDesc) fDesc.textContent = `Интервал по возрасту: каждые ${formatMinutesHuman(norms.feedIntervalMin)}`;
   if (sDesc) sDesc.textContent = `Окно бодрствования: ${formatMinutesHuman(norms.wakeWindowMin)}`;
+  if (dDesc) dDesc.textContent = `Напомнит проверить каждые ${formatMinutesHuman(norms.diaperIntervalMin || 180)}`;
 
   document.getElementById('notif-opt-feeding').checked = Boolean(store.appState.notifications?.feeding);
   document.getElementById('notif-opt-sleep').checked = Boolean(store.appState.notifications?.sleep);
   document.getElementById('notif-opt-diaper').checked = Boolean(store.appState.notifications?.diaper);
   document.getElementById('notif-opt-sound').checked = Boolean(store.appState.notifications?.sound);
 
+  registerAppServiceWorker().catch(() => {});
+  updatePushPermissionUI();
+  renderNotifHistoryList();
   openModal('modal-notifications');
 }
 
@@ -314,21 +612,53 @@ export function toggleNotifSetting(key, checked) {
 }
 
 export async function requestBrowserPushPermission() {
-  if (!('Notification' in window)) {
-    showToast('Браузер не поддерживает системные уведомления');
+  const info = getNotificationPlatformInfo();
+  if (!info.supported) {
+    updatePushPermissionUI();
+    showToast(info.isIos && !info.standalone
+      ? 'На iPhone нажмите «Поделиться» в Safari → «На экран „Домой“», затем включите уведомления'
+      : 'Браузер не поддерживает системные уведомления');
     return;
   }
-  const res = await Notification.requestPermission();
-  const lbl = document.getElementById('push-status-label');
-  if (lbl) lbl.textContent = res === 'granted' ? 'Системные уведомления включены' : 'Доступ к уведомлениям отклонен';
-  showToast(res === 'granted' ? 'Уведомления включены' : 'Разрешение не выдано');
+
+  if (Notification.permission === 'denied') {
+    updatePushPermissionUI();
+    showToast('Уведомления заблокированы — разрешите их в настройках сайта в браузере');
+    return;
+  }
+
+  if (Notification.permission === 'granted') {
+    await registerAppServiceWorker();
+    updatePushPermissionUI();
+    showToast('Системные уведомления уже включены');
+    evaluateSmartNotifications();
+    return;
+  }
+
+  try {
+    // Сначала запрашиваем разрешение строго внутри клика (важно для iOS Safari), параллельно регистрируем Service Worker
+    registerAppServiceWorker().catch(() => {});
+    const res = await Notification.requestPermission();
+    updatePushPermissionUI();
+    if (res === 'granted') {
+      showToast('Системные уведомления включены');
+      evaluateSmartNotifications();
+    } else if (res === 'denied') {
+      showToast('Доступ к уведомлениям отклонён в браузере');
+    } else {
+      showToast('Разрешение не выдано');
+    }
+  } catch (err) {
+    console.warn('Notification permission error:', err);
+    updatePushPermissionUI();
+    showToast('Браузер отклонил запрос — откройте приложение в основном окне или как PWA');
+  }
 }
 
 export function clearNotifHistory() {
   store.appState.notifications.history = [];
   saveAppState();
-  const list = document.getElementById('notif-history-list');
-  if (list) list.innerHTML = '<div class="py-3 text-center text-slate-400">История пуста</div>';
+  renderNotifHistoryList();
 }
 
 // =========================================================================

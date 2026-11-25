@@ -1,6 +1,7 @@
 // Вкладка 1: Развитие по неделям (1–260 недель)
 
 import { getWeekData, getInterpolatedWhoForMonth } from '../data.js';
+import { MOM_SUPPORT_BY_WEEK } from '../data/mom-support.js';
 import { store, calculateBabyAge } from '../state.js';
 import { saveAppState } from '../firebase.js';
 import { escapeHtml } from '../utils.js';
@@ -99,6 +100,9 @@ export function renderDevelopmentTab() {
     'Память и забота': 'text-rose-600 dark:text-rose-400'
   };
 
+  const supportIdx = Math.max(0, Math.min(MOM_SUPPORT_BY_WEEK.length - 1, sel - 1));
+  const supportCard = MOM_SUPPORT_BY_WEEK[supportIdx];
+
   card.innerHTML = `
     <div class="relative overflow-hidden rounded-3xl bg-gradient-to-br from-rose-500 via-rose-500 to-amber-500 text-white p-5 sm:p-7 shadow-md space-y-4">
       <div class="flex flex-wrap items-center justify-between gap-2">
@@ -175,6 +179,31 @@ export function renderDevelopmentTab() {
           `;
         }).join('')}
       </div>
+    </div>
+
+    <div class="bg-gradient-to-br from-rose-50/90 via-amber-50/50 to-warmgray/70 dark:from-rose-950/35 dark:via-slate-900 dark:to-slate-900 rounded-3xl border border-rose-200/70 dark:border-rose-900/40 p-4 sm:p-6 space-y-3 shadow-2xs">
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex items-center gap-2 min-w-0">
+          <span class="w-7 h-7 rounded-xl bg-rose-100 dark:bg-rose-950/80 text-rose-500 flex items-center justify-center shrink-0">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
+          </span>
+          <h3 class="font-display font-extrabold text-sm sm:text-base text-slate-900 dark:text-slate-100 truncate">Поддержка для мамы</h3>
+        </div>
+        <span class="text-[11px] font-bold text-rose-500/80 dark:text-rose-300/80 shrink-0">Неделя ${sel}</span>
+      </div>
+
+      <p class="font-display font-bold text-sm sm:text-base text-slate-800 dark:text-slate-100 leading-relaxed">
+        «${escapeHtml(supportCard.quote)}»
+      </p>
+
+      <div class="p-3 rounded-2xl bg-white/75 dark:bg-slate-800/75 border border-rose-100/80 dark:border-slate-700/80 text-xs text-slate-700 dark:text-slate-200 leading-relaxed">
+        <span class="font-bold text-rose-600 dark:text-rose-300">Маленький шаг сегодня:</span>
+        ${escapeHtml(supportCard.tip)}
+      </div>
+
+      <p class="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+        Если подавленность, сильная тревога или бессилие держатся дольше двух недель — не оставайтесь с этим наедине: расскажите близким и обратитесь за поддержкой к врачу или перинатальному психологу.
+      </p>
     </div>
   `;
 }

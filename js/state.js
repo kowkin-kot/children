@@ -560,6 +560,7 @@ export function getAgeSleepAndFeedNorms() {
     return {
       feedIntervalMin: 150,
       wakeWindowMin: 50,
+      diaperIntervalMin: 150,
       shortNapThresholdMin: 35,
       napShortenMin: 15,
       dailySleepTargetMin: 16.5 * 60,
@@ -570,6 +571,7 @@ export function getAgeSleepAndFeedNorms() {
     return {
       feedIntervalMin: 180,
       wakeWindowMin: 75,
+      diaperIntervalMin: 180,
       shortNapThresholdMin: 40,
       napShortenMin: 15,
       dailySleepTargetMin: 15.5 * 60,
@@ -580,6 +582,7 @@ export function getAgeSleepAndFeedNorms() {
     return {
       feedIntervalMin: 210,
       wakeWindowMin: 115,
+      diaperIntervalMin: 180,
       shortNapThresholdMin: 45,
       napShortenMin: 20,
       dailySleepTargetMin: 14.5 * 60,
@@ -590,6 +593,7 @@ export function getAgeSleepAndFeedNorms() {
     return {
       feedIntervalMin: 240,
       wakeWindowMin: 165,
+      diaperIntervalMin: 210,
       shortNapThresholdMin: 45,
       napShortenMin: 20,
       dailySleepTargetMin: 14 * 60,
@@ -600,6 +604,7 @@ export function getAgeSleepAndFeedNorms() {
     return {
       feedIntervalMin: 240,
       wakeWindowMin: 210,
+      diaperIntervalMin: 240,
       shortNapThresholdMin: 50,
       napShortenMin: 20,
       dailySleepTargetMin: 13.5 * 60,
@@ -610,6 +615,7 @@ export function getAgeSleepAndFeedNorms() {
     return {
       feedIntervalMin: 270,
       wakeWindowMin: 300,
+      diaperIntervalMin: 240,
       shortNapThresholdMin: 60,
       napShortenMin: 20,
       dailySleepTargetMin: 12.8 * 60,
@@ -619,6 +625,7 @@ export function getAgeSleepAndFeedNorms() {
   return {
     feedIntervalMin: 300,
     wakeWindowMin: 390,
+    diaperIntervalMin: 270,
     shortNapThresholdMin: 60,
     napShortenMin: 20,
     dailySleepTargetMin: 11.8 * 60,
@@ -636,12 +643,15 @@ export function computeHereAndNowMetrics() {
 
   // 1. Последнее кормление
   let sinceFeedMin = null;
+  let lastFeedTs = null;
   if (appState.timers?.feeding?.active && appState.timers.feeding.startTime) {
     sinceFeedMin = 0;
+    lastFeedTs = appState.timers.feeding.startTime;
   } else {
     const lastFeed = sortedLogs.find(l => l.type === 'feeding' || l.type === 'feeding_solids');
     if (lastFeed) {
       const refTs = lastFeed.endTime || lastFeed.startTime;
+      lastFeedTs = refTs;
       sinceFeedMin = Math.max(0, Math.round((now - refTs) / 60000));
     }
   }
@@ -650,6 +660,7 @@ export function computeHereAndNowMetrics() {
   const sleepActive = Boolean(appState.timers?.sleep?.active && appState.timers.sleep.startTime);
   let activeSleepMin = 0;
   let wakeMin = null;
+  let lastWakeStartTs = null;
   let adjustedWakeWindowMin = norms.wakeWindowMin;
   let shortNapAdjusted = false;
   let lastShortNapMin = 0;
@@ -659,6 +670,7 @@ export function computeHereAndNowMetrics() {
     activeSleepMin = Math.max(0, Math.round((now - appState.timers.sleep.startTime) / 60000));
   } else if (lastSleep) {
     const wakeStartTs = lastSleep.endTime || lastSleep.startTime;
+    lastWakeStartTs = wakeStartTs;
     wakeMin = Math.max(0, Math.round((now - wakeStartTs) / 60000));
 
     const durMin = Number(lastSleep.durationMin) || Math.round(((lastSleep.endTime || wakeStartTs) - (lastSleep.startTime || wakeStartTs)) / 60000);
@@ -670,6 +682,15 @@ export function computeHereAndNowMetrics() {
       lastShortNapMin = durMin;
       adjustedWakeWindowMin = Math.max(30, norms.wakeWindowMin - norms.napShortenMin);
     }
+  }
+
+  // 2б. Последняя смена подгузника / горшок
+  let sinceDiaperMin = null;
+  let lastDiaperTs = null;
+  const lastDiaper = sortedLogs.find(l => l.type === 'diaper_wet' || l.type === 'diaper_dirty');
+  if (lastDiaper) {
+    lastDiaperTs = lastDiaper.endTime || lastDiaper.startTime;
+    sinceDiaperMin = Math.max(0, Math.round((now - lastDiaperTs) / 60000));
   }
 
   let countdownMin = null;
@@ -743,9 +764,13 @@ export function computeHereAndNowMetrics() {
   return {
     norms,
     sinceFeedMin,
+    lastFeedTs,
     sleepActive,
     activeSleepMin,
     wakeMin,
+    lastWakeStartTs,
+    sinceDiaperMin,
+    lastDiaperTs,
     adjustedWakeWindowMin,
     shortNapAdjusted,
     lastShortNapMin,

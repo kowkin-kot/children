@@ -25,6 +25,13 @@ export default defineConfig(() => {
           if (fs.existsSync(distDir) && fs.existsSync(srcAssets)) {
             fs.cpSync(srcAssets, distAssets, {recursive: true, force: true});
           }
+          for (const staticFile of ['sw.js', 'manifest.json']) {
+            const srcFile = path.resolve(__dirname, staticFile);
+            const destFile = path.resolve(distDir, staticFile);
+            if (fs.existsSync(distDir) && fs.existsSync(srcFile)) {
+              fs.copyFileSync(srcFile, destFile);
+            }
+          }
         },
       },
     ],

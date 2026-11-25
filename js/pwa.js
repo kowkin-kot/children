@@ -8,6 +8,179 @@ let deferredInstallPrompt = null;
 let pwaBannerDismissed = false;
 let lastManifestBlobUrl = '';
 let cachedPng512DataUrl = '';
+let swRegistrationPromise = null;
+let cachedSwRegistration = null;
+const pageFallbackTimers = new Map();
+
+export async function registerAppServiceWorker() {
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
+    return null;
+  }
+  if (cachedSwRegistration) return cachedSwRegistration;
+  if (swRegistrationPromise) return swRegistrationPromise;
+
+  swRegistrationPromise = (async () => {
+    try {
+      const reg = await navigator.serviceWorker.register('./sw.js', { scope: './' });
+      cachedSwRegistration = reg;
+      if (reg && typeof reg.update === 'function') {
+        reg.update().catch(() => {});
+      }
+      return reg;
+    } catch (err) {
+      console.warn('Service Worker registration skipped:', err);
+      swRegistrationPromise = null;
+      return null;
+    }
+  })();
+
+  return swRegistrationPromise;
+}
+
+export async function getActiveServiceWorkerRegistration(timeoutMs = 1800) {
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
+    return null;
+  }
+  try {
+    const reg = await registerAppServiceWorker();
+    if (reg && reg.active) return reg;
+
+    const readyReg = await Promise.race([
+      navigator.serviceWorker.ready.catch(() => null),
+      new Promise((resolve) => setTimeout(() => resolve(reg || null), timeoutMs))
+    ]);
+    if (readyReg) {
+      cachedSwRegistration = readyReg;
+      return readyReg;
+    }
+    return reg || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+export async function showSystemNotification({
+  title,
+  body = '',
+  tag = 'malysh-plus-alert',
+  key = '',
+  tab = 'journal',
+  requireInteraction = false
+} = {}) {
+  if (typeof window === 'undefined' || !('Notification' in window)) {
+    return { ok: false, reason: 'unsupported' };
+  }
+  if (Notification.permission !== 'granted') {
+    return { ok: false, reason: Notification.permission };
+  }
+
+  const notifTitle = title || 'Малыш+';
+  const options = {
+    body,
+    tag,
+    renotify: true,
+    requireInteraction: Boolean(requireInteraction),
+    icon: APP_ICON_PNG_URL,
+    badge: APP_ICON_PNG_URL,
+    vibrate: [160, 80, 160],
+    data: {
+      key: key || tag,
+      tab,
+      url: './'
+    }
+  };
+
+  try {
+    const reg = await getActiveServiceWorkerRegistration();
+    if (reg && typeof reg.showNotification === 'function') {
+      await reg.showNotification(notifTitle, options);
+      return { ok: true, via: 'sw' };
+    }
+  } catch (swErr) {
+    console.warn('SW showNotification error:', swErr);
+  }
+
+  // Fallback for desktop browsers if Service Worker is unavailable (Android Chrome forbids new Notification)
+  try {
+    const n = new Notification(notifTitle, {
+      body,
+      tag,
+      icon: APP_ICON_PNG_URL
+    });
+    n.onclick = () => {
+      try {
+        window.focus();
+      } catch (_) {}
+      n.close();
+    };
+    return { ok: true, via: 'window' };
+  } catch (winErr) {
+    return { ok: false, reason: winErr?.message || 'blocked' };
+  }
+}
+
+function clearPageFallbackTimers() {
+  for (const timerId of pageFallbackTimers.values()) {
+    clearTimeout(timerId);
+  }
+  pageFallbackTimers.clear();
+}
+
+export async function syncScheduledSystemNotifications(items = []) {
+  clearPageFallbackTimers();
+  const validItems = Array.isArray(items)
+    ? items.filter(it => it && it.key && Number.isFinite(Number(it.triggerAt)) && Number(it.triggerAt) > Date.now())
+    : [];
+
+  if (typeof window === 'undefined' || !('Notification' in window) || Notification.permission !== 'granted') {
+    return;
+  }
+
+  let postedToSw = false;
+  try {
+    const reg = await getActiveServiceWorkerRegistration(1200);
+    const worker = navigator.serviceWorker?.controller || reg?.active;
+    if (worker && typeof worker.postMessage === 'function') {
+      worker.postMessage({
+        type: 'SCHEDULE_NOTIFICATIONS',
+        items: validItems
+      });
+      postedToSw = true;
+    }
+  } catch (_) {}
+
+  // In-page timer backup (triggers while tab is open even if SW worker goes idle or before SW controls initial page)
+  if (!postedToSw) {
+    const now = Date.now();
+    for (const item of validItems) {
+      const delayMs = Number(item.triggerAt) - now;
+      if (delayMs > 0 && delayMs <= 86400000) {
+        const id = setTimeout(() => {
+          pageFallbackTimers.delete(item.key);
+          showSystemNotification(item).catch(() => {});
+        }, delayMs);
+        pageFallbackTimers.set(item.key, id);
+      }
+    }
+  }
+}
+
+export async function clearScheduledSystemNotifications(key = '') {
+  if (key && pageFallbackTimers.has(key)) {
+    clearTimeout(pageFallbackTimers.get(key));
+    pageFallbackTimers.delete(key);
+  } else if (!key) {
+    clearPageFallbackTimers();
+  }
+
+  try {
+    const reg = await getActiveServiceWorkerRegistration(800);
+    const worker = navigator.serviceWorker?.controller || reg?.active;
+    if (worker && typeof worker.postMessage === 'function') {
+      worker.postMessage({ type: 'CLEAR_SCHEDULED', key });
+    }
+  } catch (_) {}
+}
 
 function checkImageLoads(url, timeoutMs = 3000) {
   return new Promise((resolve) => {
@@ -87,6 +260,10 @@ export async function setupPwaManifestAndIcons() {
     const hasStaticPng = await checkImageLoads(APP_ICON_PNG_URL, 2500);
     if (hasStaticPng) {
       applyAppleTouchIconHref(APP_ICON_PNG_URL);
+      // Статичный ./manifest.json уже содержит рабочие PNG-иконки — сохраняем его для iOS/Android PWA
+      if (window.location.protocol.startsWith('http')) {
+        return;
+      }
       manifestIcons.push(
         { src: APP_ICON_PNG_URL, sizes: '192x192', type: 'image/png', purpose: 'any' },
         { src: APP_ICON_PNG_URL, sizes: '512x512', type: 'image/png', purpose: 'any maskable' }
@@ -178,28 +355,32 @@ export function updateNetworkStatusUI() {
   const label = document.getElementById('header-net-label');
   const profileStatus = document.getElementById('profile-offline-status');
 
-  if (!pill || !dot || !label) return;
-
   if (!online) {
-    pill.className = 'inline-flex items-center justify-center gap-1.5 min-w-[34px] min-h-[38px] px-2 sm:px-2.5 py-2 rounded-xl bg-amber-50/90 dark:bg-amber-950/50 border border-amber-200/70 dark:border-amber-800/60 text-amber-700 dark:text-amber-300 text-xs font-semibold transition';
-    dot.className = 'w-2 h-2 rounded-full bg-amber-500 animate-pulse shrink-0';
-    label.textContent = 'Офлайн';
+    if (pill && dot && label) {
+      pill.className = 'inline-flex items-center justify-center gap-1.5 min-w-[34px] min-h-[38px] px-2 sm:px-2.5 py-2 rounded-xl bg-amber-50/90 dark:bg-amber-950/50 border border-amber-200/70 dark:border-amber-800/60 text-amber-700 dark:text-amber-300 text-xs font-semibold transition';
+      dot.className = 'w-2 h-2 rounded-full bg-amber-500 animate-pulse shrink-0';
+      label.textContent = 'Офлайн';
+    }
     if (profileStatus) {
       profileStatus.textContent = 'Офлайн • Сохраняется локально';
       profileStatus.className = 'text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/70 text-amber-700 dark:text-amber-300';
     }
   } else if (store.pendingSyncState) {
-    pill.className = 'inline-flex items-center justify-center gap-1.5 min-w-[34px] min-h-[38px] px-2 sm:px-2.5 py-2 rounded-xl bg-sky-50/90 dark:bg-sky-950/50 border border-sky-200/70 dark:border-sky-800/60 text-sky-700 dark:text-sky-300 text-xs font-semibold transition';
-    dot.className = 'w-2 h-2 rounded-full bg-sky-500 animate-ping shrink-0';
-    label.textContent = 'Синхр...';
+    if (pill && dot && label) {
+      pill.className = 'inline-flex items-center justify-center gap-1.5 min-w-[34px] min-h-[38px] px-2 sm:px-2.5 py-2 rounded-xl bg-sky-50/90 dark:bg-sky-950/50 border border-sky-200/70 dark:border-sky-800/60 text-sky-700 dark:text-sky-300 text-xs font-semibold transition';
+      dot.className = 'w-2 h-2 rounded-full bg-sky-500 animate-ping shrink-0';
+      label.textContent = 'Синхр...';
+    }
     if (profileStatus) {
       profileStatus.textContent = 'Синхронизация с облаком...';
       profileStatus.className = 'text-[11px] font-semibold px-2 py-0.5 rounded-full bg-sky-100 dark:bg-sky-950/70 text-sky-700 dark:text-sky-300';
     }
   } else {
-    pill.className = 'inline-flex items-center justify-center gap-1.5 min-w-[34px] min-h-[38px] px-2 sm:px-2.5 py-2 rounded-xl bg-emerald-50/90 dark:bg-emerald-950/50 border border-emerald-200/70 dark:border-emerald-800/60 text-emerald-700 dark:text-emerald-300 text-xs font-semibold transition';
-    dot.className = 'w-2 h-2 rounded-full bg-emerald-500 shrink-0';
-    label.textContent = 'Онлайн';
+    if (pill && dot && label) {
+      pill.className = 'inline-flex items-center justify-center gap-1.5 min-w-[34px] min-h-[38px] px-2 sm:px-2.5 py-2 rounded-xl bg-emerald-50/90 dark:bg-emerald-950/50 border border-emerald-200/70 dark:border-emerald-800/60 text-emerald-700 dark:text-emerald-300 text-xs font-semibold transition';
+      dot.className = 'w-2 h-2 rounded-full bg-emerald-500 shrink-0';
+      label.textContent = 'Онлайн';
+    }
     if (profileStatus) {
       profileStatus.textContent = 'Онлайн • Синхронизировано';
       profileStatus.className = 'text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300';

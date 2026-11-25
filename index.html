@@ -195,13 +195,8 @@
         <button type="button" data-tab="diary" onclick="switchTab('diary')" class="desktop-nav-btn px-3 py-1.5 rounded-xl text-xs font-bold transition">Дневник</button>
       </nav>
 
-      <!-- Кнопки статуса сети, уведомлений, темы и настроек профиля -->
+      <!-- Кнопки уведомлений, ночного режима, темы и настроек профиля -->
       <div class="flex items-center gap-1 sm:gap-1.5 shrink-0">
-        <button type="button" onclick="showNetworkStatusToast()" id="header-net-pill" title="Статус подключения и офлайн-кэша" aria-label="Статус сети" class="inline-flex items-center justify-center gap-1.5 min-w-[34px] min-h-[38px] px-2 sm:px-2.5 py-2 rounded-xl bg-emerald-50/90 dark:bg-emerald-950/50 border border-emerald-200/70 dark:border-emerald-800/60 text-emerald-700 dark:text-emerald-300 text-xs font-semibold transition">
-          <span id="header-net-dot" class="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
-          <span id="header-net-label" class="hidden md:inline">Онлайн</span>
-        </button>
-
         <button type="button" onclick="openNotificationsModal()" id="header-notif-btn" title="Умные напоминания" aria-label="Уведомления" class="relative inline-flex items-center justify-center min-w-[38px] min-h-[38px] p-2 rounded-xl bg-warmgray dark:bg-slate-800 hover:bg-stone-200/80 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition">
           <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
           <span id="header-notif-badge" class="hidden absolute -top-1 -right-1 min-w-[17px] h-[17px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center">0</span>
@@ -470,19 +465,7 @@
           <span>Добавить вручную: кормление, прикорм, сон, уход</span>
         </button>
 
-        <div class="flex flex-wrap items-center justify-between gap-2 pt-0.5">
-          <div class="flex items-center gap-2">
-            <h3 class="font-display font-bold text-sm text-slate-900 dark:text-slate-100">Быстрые отметки ухода</h3>
-            <button type="button" onclick="openProfileModal()" title="Сменить роль на этом устройстве или пригласить второго родителя" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-warmgray dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/50 text-[11px] font-bold text-slate-600 dark:text-slate-300 transition">
-              <span class="text-slate-400 font-normal">Отмечает:</span>
-              <span id="journal-caregiver-pill">Мама</span>
-            </button>
-          </div>
-          <button type="button" onclick="openNightMode()" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-amber-950/90 hover:bg-amber-900 text-amber-200 text-[11px] font-bold transition">
-            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
-            <span>Ночной режим</span>
-          </button>
-        </div>
+        <h3 class="font-display font-bold text-sm text-slate-900 dark:text-slate-100 pt-0.5">Быстрые отметки ухода</h3>
         <div class="grid grid-cols-2 sm:grid-cols-5 gap-2">
           <button type="button" onclick="addQuickCareLog('diaper_wet', 'Мокрый подгузник')" class="p-2.5 rounded-2xl bg-warmgray/70 dark:bg-slate-800 hover:bg-sky-50 dark:hover:bg-sky-950/50 border border-stone-200/60 dark:border-slate-700 flex items-center gap-2 text-xs font-semibold transition">
             <svg class="w-4 h-4 text-sky-500 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/></svg>
@@ -866,14 +849,17 @@
           <input type="checkbox" id="notif-opt-sound" onchange="toggleNotifSetting('sound', this.checked)" class="w-4 h-4 accent-rose-500" />
         </label>
 
-        <div class="flex items-center justify-between p-3 rounded-2xl bg-warmgray/70 dark:bg-slate-800/70">
-          <div>
-            <div class="font-bold text-slate-800 dark:text-slate-100">Системные Push-уведомления</div>
-            <div id="push-status-label" class="text-[11px] text-slate-500">Уведомления на экран телефона / ПК</div>
+        <div class="p-3 rounded-2xl bg-warmgray/70 dark:bg-slate-800/70 space-y-2">
+          <div class="flex items-center justify-between gap-2">
+            <div class="min-w-0">
+              <div class="font-bold text-slate-800 dark:text-slate-100">Системные Push-уведомления</div>
+              <div id="push-status-label" class="text-[11px] text-slate-500">Уведомления на экран телефона / ПК</div>
+            </div>
+            <button type="button" id="push-perm-btn" onclick="requestBrowserPushPermission()" class="px-3 py-1.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-[11px] font-bold transition shrink-0">
+              Включить
+            </button>
           </div>
-          <button type="button" onclick="requestBrowserPushPermission()" class="px-3 py-1.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-[11px] font-bold transition">
-            Включить
-          </button>
+          <div id="push-platform-hint" class="hidden text-[11px] leading-relaxed text-amber-700 dark:text-amber-300 bg-amber-50/80 dark:bg-amber-950/40 border border-amber-200/70 dark:border-amber-800/60 rounded-xl px-2.5 py-2"></div>
         </div>
       </div>
 

@@ -280,6 +280,7 @@ export function saveSolidsFeedingNow() {
   saveAppState();
   renderJournalTab();
   hooks.renderHereAndNowWidget();
+  hooks.evaluateSmartNotifications();
   showToast('Прикорм записан в журнал');
 }
 
@@ -415,6 +416,7 @@ export function addQuickCareLog(type, title) {
   saveAppState();
   renderJournalTab();
   hooks.renderHereAndNowWidget();
+  hooks.evaluateSmartNotifications();
   hooks.renderNightMode();
   showToast(`Отмечено: ${title}`);
 }
@@ -798,6 +800,7 @@ export function deleteJournalLog(logId) {
   saveAppState();
   renderJournalTab();
   hooks.renderHereAndNowWidget();
+  hooks.evaluateSmartNotifications();
   showToast('Запись удалена');
 }
 

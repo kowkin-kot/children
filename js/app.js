@@ -17,7 +17,8 @@ import {
   renderPwaInstallUI,
   triggerPwaInstall,
   dismissPwaBanner,
-  initPwaListeners
+  initPwaListeners,
+  registerAppServiceWorker
 } from './pwa.js';
 import {
   flushPendingSync,
@@ -287,6 +288,7 @@ async function initApp() {
 
   bindRuDateInputs();
   initPwaListeners();
+  registerAppServiceWorker().catch(() => {});
   setupPwaManifestAndIcons();
   warmOfflineCache();
   updateNetworkStatusUI();
@@ -304,6 +306,25 @@ async function initApp() {
   } else if (Object.keys(localAccounts).length > 0) {
     switchAuthMode('login');
   }
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', (event) => {
+      const msg = event.data;
+      if (msg && msg.type === 'NOTIF_CLICK' && store.currentAccountLogin) {
+        switchTab(msg.tab || 'journal');
+      }
+    });
+  }
+
+  const refreshAndSyncNotifications = () => {
+    if (!store.currentAccountLogin) return;
+    renderHereAndNowWidget();
+    evaluateSmartNotifications();
+    renderNightMode();
+  };
+
+  document.addEventListener('visibilitychange', refreshAndSyncNotifications);
+  window.addEventListener('focus', refreshAndSyncNotifications);
 
   setInterval(() => {
     if (!store.currentAccountLogin) return;

@@ -17,6 +17,7 @@ import {
   closeModal,
   showToast
 } from './utils.js';
+import { registerAppServiceWorker, showSystemNotification } from './pwa.js';
 
 // Сессионный Bearer-токен администратора хранится строго в памяти JS (не в localStorage/sessionStorage)
 let adminToken = null;
@@ -1382,6 +1383,41 @@ function bindEvents() {
   });
 
   document.getElementById('details-sync-cloud-btn')?.addEventListener('click', syncSelectedLocalUserToCloud);
+
+  document.getElementById('admin-test-push-btn')?.addEventListener('click', async () => {
+    if (!('Notification' in window)) {
+      showToast('Браузер не поддерживает системные уведомления');
+      return;
+    }
+    try {
+      registerAppServiceWorker().catch(() => {});
+      let perm = Notification.permission;
+      if (perm === 'default') {
+        perm = await Notification.requestPermission();
+      }
+      if (perm !== 'granted') {
+        showToast(perm === 'denied'
+          ? 'Уведомления заблокированы — разрешите их в настройках сайта'
+          : 'Разрешение на уведомления не выдано');
+        return;
+      }
+      await registerAppServiceWorker();
+      const res = await showSystemNotification({
+        title: 'Малыш+ Admin — тест уведомлений',
+        body: 'Системные уведомления и Service Worker работают корректно.',
+        tag: 'malysh-admin-test-' + Date.now(),
+        key: 'admin_test',
+        tab: 'journal'
+      });
+      if (res.ok) {
+        showToast(`Тестовое уведомление отправлено (${res.via === 'sw' ? 'через Service Worker' : 'через браузер'})`);
+      } else {
+        showToast('Не удалось отправить тестовое уведомление');
+      }
+    } catch (_) {
+      showToast('Ошибка при проверке уведомлений');
+    }
+  });
 }
 
 initTheme();
