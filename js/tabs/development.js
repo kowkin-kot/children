@@ -3,6 +3,7 @@
 import { getWeekData, getInterpolatedWhoForMonth } from '../data.js';
 import { store, calculateBabyAge } from '../state.js';
 import { saveAppState } from '../firebase.js';
+import { escapeHtml } from '../utils.js';
 
 export function filterWeekRange(start, end) {
   store.appState.weekRangeStart = start;
@@ -85,6 +86,19 @@ export function renderDevelopmentTab() {
   const prevWeek = Math.max(1, sel - 1);
   const nextWeek = Math.min(260, sel + 1);
 
+  const items = Array.isArray(info.checklistItems) && info.checklistItems.length > 0
+    ? info.checklistItems
+    : info.checklist.map(text => ({ category: '', text }));
+  const doneCount = items.reduce((acc, _it, idx) => acc + (appState.completedMilestones[`${sel}_${idx}`] ? 1 : 0), 0);
+
+  const categoryColorMap = {
+    'Моторика': 'text-emerald-600 dark:text-emerald-400',
+    'Речь и контакт': 'text-indigo-600 dark:text-indigo-400',
+    'Игра и сенсорика': 'text-amber-600 dark:text-amber-400',
+    'Режим и быт': 'text-sky-600 dark:text-sky-400',
+    'Память и забота': 'text-rose-600 dark:text-rose-400'
+  };
+
   card.innerHTML = `
     <div class="relative overflow-hidden rounded-3xl bg-gradient-to-br from-rose-500 via-rose-500 to-amber-500 text-white p-5 sm:p-7 shadow-md space-y-4">
       <div class="flex flex-wrap items-center justify-between gap-2">
@@ -93,7 +107,7 @@ export function renderDevelopmentTab() {
             Неделя ${info.week} из 260
           </span>
           <span class="px-3 py-1 rounded-full bg-black/15 text-xs font-semibold">
-            ${info.ageContext}
+            ${escapeHtml(info.ageContext)}
           </span>
           ${info.isLeap ? `<span class="px-2.5 py-1 rounded-full bg-amber-300 text-slate-900 text-[11px] font-extrabold">Скачок роста</span>` : ''}
         </div>
@@ -108,42 +122,49 @@ export function renderDevelopmentTab() {
       </div>
 
       <div class="space-y-2">
-        <h2 class="font-display font-extrabold text-xl sm:text-2xl leading-snug">${info.title}</h2>
-        <p class="text-xs sm:text-sm text-white/90 leading-relaxed">${info.summary}</p>
+        <h2 class="font-display font-extrabold text-xl sm:text-2xl leading-snug">${escapeHtml(info.title)}</h2>
+        <p class="text-xs sm:text-sm text-white/90 leading-relaxed">${escapeHtml(info.summary)}</p>
       </div>
 
       <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1">
         <div class="p-3 rounded-2xl bg-white/15 backdrop-blur-xs border border-white/15">
           <div class="text-[10px] uppercase tracking-wider text-white/80 font-semibold">Сон по ВОЗ</div>
-          <div class="font-display font-extrabold text-xs sm:text-sm mt-0.5">${info.sleepNorm}</div>
+          <div class="font-display font-extrabold text-xs sm:text-sm mt-0.5">${escapeHtml(info.sleepNorm)}</div>
         </div>
         <div class="p-3 rounded-2xl bg-white/15 backdrop-blur-xs border border-white/15">
           <div class="text-[10px] uppercase tracking-wider text-white/80 font-semibold">Бодрствование</div>
-          <div class="font-display font-extrabold text-xs sm:text-sm mt-0.5">${info.wakeWindow}</div>
+          <div class="font-display font-extrabold text-xs sm:text-sm mt-0.5">${escapeHtml(info.wakeWindow)}</div>
         </div>
         <div class="p-3 rounded-2xl bg-white/15 backdrop-blur-xs border border-white/15">
           <div class="text-[10px] uppercase tracking-wider text-white/80 font-semibold">Вес (ВОЗ)</div>
-          <div class="font-display font-extrabold text-xs sm:text-sm mt-0.5">${who.weightRange}</div>
+          <div class="font-display font-extrabold text-xs sm:text-sm mt-0.5">${escapeHtml(who.weightRange)}</div>
         </div>
         <div class="p-3 rounded-2xl bg-white/15 backdrop-blur-xs border border-white/15">
           <div class="text-[10px] uppercase tracking-wider text-white/80 font-semibold">Рост (ВОЗ)</div>
-          <div class="font-display font-extrabold text-xs sm:text-sm mt-0.5">${who.heightRange}</div>
+          <div class="font-display font-extrabold text-xs sm:text-sm mt-0.5">${escapeHtml(who.heightRange)}</div>
         </div>
       </div>
     </div>
 
     <div class="bg-white dark:bg-slate-900 rounded-3xl border border-stone-200/70 dark:border-slate-800 p-4 sm:p-6 space-y-3 shadow-2xs">
-      <div class="flex items-center justify-between">
-        <h3 class="font-display font-extrabold text-sm sm:text-base text-slate-900 dark:text-slate-100">Чек-лист недели: навыки и игры</h3>
-        <span class="text-xs text-slate-400">Кормления: ${info.feedInterval}</span>
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <div class="flex items-center gap-2">
+          <h3 class="font-display font-extrabold text-sm sm:text-base text-slate-900 dark:text-slate-100">Чек-лист недели: навыки и игры</h3>
+          <span class="text-[11px] font-bold text-slate-500 dark:text-slate-400">${doneCount} / ${items.length}</span>
+        </div>
+        <span class="text-xs text-slate-400">Кормления: ${escapeHtml(info.feedInterval)}</span>
       </div>
       <div class="space-y-2">
-        ${info.checklist.map((item, idx) => {
+        ${items.map((item, idx) => {
           const checked = Boolean(appState.completedMilestones[`${sel}_${idx}`]);
+          const catColor = categoryColorMap[item.category] || 'text-slate-400';
           return `
             <label onclick="toggleMilestone(${sel}, ${idx})" class="flex items-start gap-3 p-3 rounded-2xl bg-warmgray/60 dark:bg-slate-800/70 hover:bg-rose-50/60 dark:hover:bg-slate-800 cursor-pointer transition">
-              <input type="checkbox" ${checked ? 'checked' : ''} onclick="event.stopPropagation(); toggleMilestone(${sel}, ${idx})" class="mt-0.5 w-4 h-4 accent-rose-500 rounded shrink-0" />
-              <span class="text-xs sm:text-sm ${checked ? 'line-through text-slate-400' : 'text-slate-700 dark:text-slate-200'}">${item}</span>
+              <input type="checkbox" ${checked ? 'checked' : ''} onclick="event.stopPropagation(); toggleMilestone(${sel}, ${idx})" class="mt-1 w-4 h-4 accent-rose-500 rounded shrink-0" />
+              <div class="min-w-0 space-y-0.5">
+                ${item.category ? `<div class="text-[10px] font-extrabold uppercase tracking-wider ${checked ? 'text-slate-400' : catColor}">${escapeHtml(item.category)}</div>` : ''}
+                <div class="text-xs sm:text-sm leading-snug ${checked ? 'line-through text-slate-400' : 'text-slate-700 dark:text-slate-200'}">${escapeHtml(item.text)}</div>
+              </div>
             </label>
           `;
         }).join('')}
