@@ -1,17 +1,7 @@
 // Синхронизация с Firebase Firestore и авторизация по логину и паролю
 
-import { initializeApp, getApps } from 'firebase/app';
-import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import {
-  getFirestore,
-  doc as fsDoc,
-  getDoc as fsGetDoc,
-  setDoc as fsSetDoc,
-  onSnapshot as fsOnSnapshot
-} from 'firebase/firestore';
 import {
   firebaseConfig,
-  appId,
   FIREBASE_COLLECTION_PATH,
   LEGACY_FIREBASE_COLLECTION_PATH
 } from './config.js';
@@ -37,6 +27,13 @@ import {
   showToast
 } from './utils.js';
 
+const FIREBASE_CDN_BASE = 'https://www.gstatic.com/firebasejs/11.6.1';
+
+let fbAppSdk = null;
+let fbAuthSdk = null;
+let fbFirestoreSdk = null;
+let sdkLoadPromise = null;
+
 let app = null;
 let auth = null;
 let db = null;
@@ -44,9 +41,34 @@ let firebaseUser = null;
 let unsubAccountSnapshot = null;
 let activeInitPromise = null;
 
-// Надёжная инициализация Firebase с использованием локального SDK и повторным подключением при сбое
+// Динамическая загрузка официального Firebase Modular SDK из CDN (работает и на GitHub Pages без сборщика, и в Vite, и не блокирует офлайн-запуск)
+async function loadFirebaseSdk() {
+  if (fbAppSdk && fbAuthSdk && fbFirestoreSdk) {
+    return { appSdk: fbAppSdk, authSdk: fbAuthSdk, firestoreSdk: fbFirestoreSdk };
+  }
+  if (!sdkLoadPromise) {
+    sdkLoadPromise = Promise.all([
+      import(/* @vite-ignore */ `${FIREBASE_CDN_BASE}/firebase-app.js`),
+      import(/* @vite-ignore */ `${FIREBASE_CDN_BASE}/firebase-auth.js`),
+      import(/* @vite-ignore */ `${FIREBASE_CDN_BASE}/firebase-firestore.js`)
+    ])
+      .then(([appMod, authMod, fsMod]) => {
+        fbAppSdk = appMod;
+        fbAuthSdk = authMod;
+        fbFirestoreSdk = fsMod;
+        return { appSdk: fbAppSdk, authSdk: fbAuthSdk, firestoreSdk: fbFirestoreSdk };
+      })
+      .catch((err) => {
+        sdkLoadPromise = null;
+        throw err;
+      });
+  }
+  return sdkLoadPromise;
+}
+
+// Надёжная инициализация Firebase с повторным подключением при сбое
 export function ensureFirebaseReady() {
-  if (db && firebaseUser) {
+  if (db && fbFirestoreSdk && firebaseUser) {
     return Promise.resolve(firebaseUser);
   }
   if (activeInitPromise) {
@@ -55,12 +77,13 @@ export function ensureFirebaseReady() {
 
   activeInitPromise = (async () => {
     try {
+      const { appSdk, authSdk, firestoreSdk } = await loadFirebaseSdk();
       if (!app) {
-        const existingApps = getApps();
-        app = existingApps.length > 0 ? existingApps[0] : initializeApp(firebaseConfig);
+        const existingApps = appSdk.getApps();
+        app = existingApps.length > 0 ? existingApps[0] : appSdk.initializeApp(firebaseConfig);
       }
-      if (!auth) auth = getAuth(app);
-      if (!db) db = getFirestore(app);
+      if (!auth) auth = authSdk.getAuth(app);
+      if (!db) db = firestoreSdk.getFirestore(app);
 
       if (typeof auth.authStateReady === 'function') {
         try {
@@ -74,7 +97,7 @@ export function ensureFirebaseReady() {
       }
 
       try {
-        const cred = await signInAnonymously(auth);
+        const cred = await authSdk.signInAnonymously(auth);
         if (cred && cred.user) {
           firebaseUser = cred.user;
           return firebaseUser;
@@ -90,7 +113,7 @@ export function ensureFirebaseReady() {
           }
           resolve(firebaseUser);
         }, 5000);
-        const unsub = onAuthStateChanged(auth, (user) => {
+        const unsub = authSdk.onAuthStateChanged(auth, (user) => {
           if (user) {
             firebaseUser = user;
             clearTimeout(timeoutId);
@@ -103,7 +126,7 @@ export function ensureFirebaseReady() {
       console.warn('Firebase init offline fallback:', e);
       return null;
     } finally {
-      if (!db || !firebaseUser) {
+      if (!db || !fbFirestoreSdk || !firebaseUser) {
         activeInitPromise = null;
       }
     }
@@ -165,12 +188,12 @@ export async function saveAppState() {
 
   try {
     await ensureFirebaseReady();
-    if (!db || !fsDoc || !fsSetDoc || !firebaseUser) {
+    if (!db || !fbFirestoreSdk || !firebaseUser) {
       store.pendingSyncState = true;
       hooks.updateNetworkStatusUI();
       return;
     }
-    const accRef = fsDoc(db, 'artifacts', appId, 'public', 'data', 'malysh_accounts', store.currentAccountLogin);
+    const accRef = fbFirestoreSdk.doc(db, ...FIREBASE_COLLECTION_PATH, store.currentAccountLogin);
     const payload = {
       login: store.currentAccountLogin,
       state: sanitizeForFirestore(store.appState),
@@ -183,7 +206,7 @@ export async function saveAppState() {
     if (store.currentAccountPassHash) {
       payload.passHash = store.currentAccountPassHash;
     }
-    await fsSetDoc(accRef, payload, { merge: true });
+    await fbFirestoreSdk.setDoc(accRef, payload, { merge: true });
     store.pendingSyncState = false;
     hooks.updateNetworkStatusUI();
   } catch (e) {
@@ -245,10 +268,10 @@ export function subscribeAccountRealtime(login) {
     try { unsubAccountSnapshot(); } catch (_) {}
     unsubAccountSnapshot = null;
   }
-  if (!db || !fsDoc || !fsOnSnapshot) return;
+  if (!db || !fbFirestoreSdk) return;
   try {
-    const accRef = fsDoc(db, ...FIREBASE_COLLECTION_PATH, login);
-    unsubAccountSnapshot = fsOnSnapshot(accRef, (snap) => {
+    const accRef = fbFirestoreSdk.doc(db, ...FIREBASE_COLLECTION_PATH, login);
+    unsubAccountSnapshot = fbFirestoreSdk.onSnapshot(accRef, (snap) => {
       if (!snap.exists()) return;
       const data = snap.data();
       if (data && data.passHash) {
@@ -284,11 +307,11 @@ export function subscribeAccountRealtime(login) {
 
 export async function syncSavedSessionFromCloud(savedLogin) {
   const user = await ensureFirebaseReady();
-  if (!user || !db || !fsDoc || !fsGetDoc) return;
+  if (!user || !db || !fbFirestoreSdk) return;
   try {
     const [primarySnap, legacySnap] = await Promise.all([
-      fsGetDoc(fsDoc(db, ...FIREBASE_COLLECTION_PATH, savedLogin)),
-      fsGetDoc(fsDoc(db, ...LEGACY_FIREBASE_COLLECTION_PATH, savedLogin)).catch(() => null)
+      fbFirestoreSdk.getDoc(fbFirestoreSdk.doc(db, ...FIREBASE_COLLECTION_PATH, savedLogin)),
+      fbFirestoreSdk.getDoc(fbFirestoreSdk.doc(db, ...LEGACY_FIREBASE_COLLECTION_PATH, savedLogin)).catch(() => null)
     ]);
 
     const primaryData = primarySnap.exists() ? primarySnap.data() : null;
@@ -373,13 +396,13 @@ async function fetchAccountByLogin(loginCandidates) {
 
   if (navigator.onLine) {
     await ensureFirebaseReady();
-    if (db && firebaseUser) {
+    if (db && fbFirestoreSdk && firebaseUser) {
       remoteReachable = true;
       for (const candidate of loginCandidates) {
         try {
           const [primarySnap, legacySnap] = await Promise.all([
-            fsGetDoc(fsDoc(db, ...FIREBASE_COLLECTION_PATH, candidate)),
-            fsGetDoc(fsDoc(db, ...LEGACY_FIREBASE_COLLECTION_PATH, candidate)).catch(() => null)
+            fbFirestoreSdk.getDoc(fbFirestoreSdk.doc(db, ...FIREBASE_COLLECTION_PATH, candidate)),
+            fbFirestoreSdk.getDoc(fbFirestoreSdk.doc(db, ...LEGACY_FIREBASE_COLLECTION_PATH, candidate)).catch(() => null)
           ]);
 
           const primaryData = primarySnap.exists() ? primarySnap.data() : null;
@@ -455,11 +478,11 @@ export async function handleAuthSubmit(e) {
       let remoteExists = false;
       if (navigator.onLine) {
         await ensureFirebaseReady();
-        if (db && firebaseUser) {
+        if (db && fbFirestoreSdk && firebaseUser) {
           try {
             const [snap, legacySnap] = await Promise.all([
-              fsGetDoc(fsDoc(db, 'artifacts', appId, 'public', 'data', 'malysh_accounts', login)),
-              fsGetDoc(fsDoc(db, 'artifacts', appId, 'public', 'data', 'accounts', login)).catch(() => null)
+              fbFirestoreSdk.getDoc(fbFirestoreSdk.doc(db, ...FIREBASE_COLLECTION_PATH, login)),
+              fbFirestoreSdk.getDoc(fbFirestoreSdk.doc(db, ...LEGACY_FIREBASE_COLLECTION_PATH, login)).catch(() => null)
             ]);
             if (snap.exists() || (legacySnap && legacySnap.exists())) remoteExists = true;
           } catch (_) {}

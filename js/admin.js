@@ -1,8 +1,5 @@
 // Логика страницы администратора: серверная авторизация, обзор БД (Firestore + localStorage), статистика данных и смена паролей
 
-import { initializeApp, getApps } from 'firebase/app';
-import { getAuth, signInAnonymously } from 'firebase/auth';
-import { getFirestore, collection, getDocs, doc, setDoc } from 'firebase/firestore';
 import {
   firebaseConfig,
   appId,
@@ -25,7 +22,13 @@ import {
 let adminToken = null;
 let adminAuthSource = 'unclaimed';
 
+const FIREBASE_CDN_BASE = 'https://www.gstatic.com/firebasejs/11.6.1';
+
 // Состояние Firebase для админ-панели
+let fbAppSdk = null;
+let fbAuthSdk = null;
+let fbFirestoreSdk = null;
+let fbSdkPromise = null;
 let fbApp = null;
 let fbAuth = null;
 let fbDb = null;
@@ -275,18 +278,43 @@ function updateLocalAccountPassword(login, passHash, changedAt, fallbackDoc) {
   }
 }
 
+async function loadAdminFirebaseSdk() {
+  if (fbAppSdk && fbAuthSdk && fbFirestoreSdk) {
+    return { appSdk: fbAppSdk, authSdk: fbAuthSdk, firestoreSdk: fbFirestoreSdk };
+  }
+  if (!fbSdkPromise) {
+    fbSdkPromise = Promise.all([
+      import(/* @vite-ignore */ `${FIREBASE_CDN_BASE}/firebase-app.js`),
+      import(/* @vite-ignore */ `${FIREBASE_CDN_BASE}/firebase-auth.js`),
+      import(/* @vite-ignore */ `${FIREBASE_CDN_BASE}/firebase-firestore.js`)
+    ])
+      .then(([appMod, authMod, fsMod]) => {
+        fbAppSdk = appMod;
+        fbAuthSdk = authMod;
+        fbFirestoreSdk = fsMod;
+        return { appSdk: fbAppSdk, authSdk: fbAuthSdk, firestoreSdk: fbFirestoreSdk };
+      })
+      .catch((err) => {
+        fbSdkPromise = null;
+        throw err;
+      });
+  }
+  return fbSdkPromise;
+}
+
 async function ensureAdminFirebase() {
-  if (fbDb && fbUser) {
+  if (fbDb && fbFirestoreSdk && fbUser) {
     cloudConnected = true;
     return true;
   }
   try {
+    const { appSdk, authSdk, firestoreSdk } = await loadAdminFirebaseSdk();
     if (!fbApp) {
-      const existingApps = getApps();
-      fbApp = existingApps.length > 0 ? existingApps[0] : initializeApp(firebaseConfig);
+      const existingApps = appSdk.getApps();
+      fbApp = existingApps.length > 0 ? existingApps[0] : appSdk.initializeApp(firebaseConfig);
     }
-    if (!fbAuth) fbAuth = getAuth(fbApp);
-    if (!fbDb) fbDb = getFirestore(fbApp);
+    if (!fbAuth) fbAuth = authSdk.getAuth(fbApp);
+    if (!fbDb) fbDb = firestoreSdk.getFirestore(fbApp);
 
     if (typeof fbAuth.authStateReady === 'function') {
       try {
@@ -297,11 +325,11 @@ async function ensureAdminFirebase() {
     if (fbAuth.currentUser) {
       fbUser = fbAuth.currentUser;
     } else {
-      const cred = await signInAnonymously(fbAuth);
+      const cred = await authSdk.signInAnonymously(fbAuth);
       fbUser = cred?.user || fbAuth.currentUser;
     }
 
-    cloudConnected = Boolean(fbDb && fbUser);
+    cloudConnected = Boolean(fbDb && fbFirestoreSdk && fbUser);
     cloudErrorText = cloudConnected ? '' : 'Не удалось выполнить авторизацию в Firebase.';
     return cloudConnected;
   } catch (err) {
@@ -370,11 +398,11 @@ async function fetchAllDatabases() {
   // 2. Резервное подключение напрямую через встроенный Firebase Web SDK (обе коллекции)
   if (!loadedViaServer) {
     const ok = await ensureAdminFirebase();
-    if (ok && fbDb) {
+    if (ok && fbDb && fbFirestoreSdk) {
       try {
         const [primaryRes, legacyRes] = await Promise.allSettled([
-          getDocs(collection(fbDb, ...FIREBASE_COLLECTION_PATH)),
-          getDocs(collection(fbDb, ...LEGACY_FIREBASE_COLLECTION_PATH))
+          fbFirestoreSdk.getDocs(fbFirestoreSdk.collection(fbDb, ...FIREBASE_COLLECTION_PATH)),
+          fbFirestoreSdk.getDocs(fbFirestoreSdk.collection(fbDb, ...LEGACY_FIREBASE_COLLECTION_PATH))
         ]);
         if (primaryRes.status === 'fulfilled') {
           primaryRes.value.forEach((docSnap) => {
@@ -826,13 +854,13 @@ async function handleChangeUserPassword(e) {
     } else if (syncToCloud && cloudConnected) {
       // Резервная запись через клиентский Firebase SDK
       const sdkOk = await ensureAdminFirebase();
-      if (sdkOk && fbDb) {
+      if (sdkOk && fbDb && fbFirestoreSdk) {
         try {
           const sdkUpdatedCols = [];
           const hasPrimary = user?.cloudCollections?.includes('malysh_accounts');
           const hasLegacy = user?.cloudCollections?.includes('accounts');
           if (hasPrimary || (!hasLegacy && user?.localDoc)) {
-            const accRef = doc(fbDb, ...FIREBASE_COLLECTION_PATH, login);
+            const accRef = fbFirestoreSdk.doc(fbDb, ...FIREBASE_COLLECTION_PATH, login);
             const payload = {
               login,
               passHash: data.passHash,
@@ -843,12 +871,12 @@ async function handleChangeUserPassword(e) {
               payload.state = sanitizeForFirestore(user.mergedState || user.localDoc.state || {});
               payload.createdAt = user.createdAt || Date.now();
             }
-            await setDoc(accRef, payload, { merge: true });
+            await fbFirestoreSdk.setDoc(accRef, payload, { merge: true });
             sdkUpdatedCols.push('malysh_accounts');
           }
           if (hasLegacy) {
-            const legacyRef = doc(fbDb, ...LEGACY_FIREBASE_COLLECTION_PATH, login);
-            await setDoc(legacyRef, {
+            const legacyRef = fbFirestoreSdk.doc(fbDb, ...LEGACY_FIREBASE_COLLECTION_PATH, login);
+            await fbFirestoreSdk.setDoc(legacyRef, {
               login,
               passHash: data.passHash,
               passwordHash: data.passHash,
