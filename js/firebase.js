@@ -533,7 +533,85 @@ export async function refreshAccountFromCloud() {
 }
 
 const INVITE_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-const INVITE_TTL_MS = 30 * 60000; // 30 минут
+
+export const INVITE_TTL_OPTIONS = [
+  {
+    key: 'forever',
+    label: 'Бессрочный',
+    shortLabel: 'Бессрочно',
+    badge: 'Для папы и семьи',
+    description: 'Не сгорает со временем: папа или близкие смогут входить в любое время, пока вы не отзовёте код.',
+    ttlMs: null,
+    neverExpires: true,
+    multiUse: true
+  },
+  {
+    key: '30m',
+    label: '30 мин',
+    shortLabel: '30 мин',
+    badge: 'Разовый вход',
+    description: 'Короткий одноразовый код на 30 минут для быстрого подключения.',
+    ttlMs: 30 * 60000,
+    neverExpires: false,
+    multiUse: false
+  },
+  {
+    key: '12h',
+    label: '12 часов',
+    shortLabel: '12 ч',
+    badge: 'Няня на смену',
+    description: 'Подойдёт для временной няни на рабочий день: действует 12 часов.',
+    ttlMs: 12 * 3600000,
+    neverExpires: false,
+    multiUse: true
+  },
+  {
+    key: '24h',
+    label: '24 часа',
+    shortLabel: '24 ч',
+    badge: 'Няня на сутки',
+    description: 'Временный доступ для няни или бабушки ровно на 24 часа.',
+    ttlMs: 24 * 3600000,
+    neverExpires: false,
+    multiUse: true
+  },
+  {
+    key: '7d',
+    label: '7 дней',
+    shortLabel: '7 дней',
+    badge: 'На неделю',
+    description: 'Действует 7 дней — удобно на период отпуска или приезда родственников.',
+    ttlMs: 7 * 86400000,
+    neverExpires: false,
+    multiUse: true
+  }
+];
+
+export function getInviteTtlOption(ttlKey) {
+  return INVITE_TTL_OPTIONS.find(opt => opt.key === ttlKey) || INVITE_TTL_OPTIONS[1];
+}
+
+export function evaluateInviteAccess(invite, now = Date.now()) {
+  if (!invite || typeof invite !== 'object') {
+    return { valid: false, reason: 'Некорректный код приглашения.' };
+  }
+  if (invite.revoked) {
+    return { valid: false, reason: 'Этот код приглашения был отозван. Попросите создать новый код.' };
+  }
+  const neverExpires = Boolean(invite.neverExpires || invite.expiresAt === null);
+  const multiUse = Boolean(invite.multiUse || neverExpires);
+  if (!neverExpires) {
+    const exp = Number(invite.expiresAt);
+    if (!Number.isFinite(exp) || now > exp) {
+      const ttlHint = invite.ttlLabel ? ` (${invite.ttlLabel})` : '';
+      return { valid: false, reason: `Срок действия кода истёк${ttlHint}. Попросите создать новый код в Профиле.` };
+    }
+  }
+  if (!multiUse && invite.used) {
+    return { valid: false, reason: 'Этот одноразовый код уже был использован. Попросите создать новый.' };
+  }
+  return { valid: true, neverExpires, multiUse };
+}
 
 export function generateInviteCodeString(length = 6) {
   const bytes = new Uint8Array(length);
@@ -549,7 +627,7 @@ export function generateInviteCodeString(length = 6) {
   return out;
 }
 
-export async function createFamilyInviteCode() {
+export async function createFamilyInviteCode(ttlKey = '30m') {
   if (!store.currentAccountLogin) {
     throw new Error('Сначала войдите в аккаунт.');
   }
@@ -561,25 +639,94 @@ export async function createFamilyInviteCode() {
     throw new Error('Не удалось подключиться к облачной базе. Попробуйте через пару секунд.');
   }
 
-  // Сохраняем текущие данные перед приглашением, чтобы второй родитель сразу увидел актуальный журнал
-  await saveAppState();
-
+  const preset = getInviteTtlOption(ttlKey);
   const code = generateInviteCodeString(6);
   const now = Date.now();
-  const expiresAt = now + INVITE_TTL_MS;
-  const inviteRef = fbFirestoreSdk.doc(db, ...FIREBASE_INVITES_COLLECTION_PATH, code);
+  const expiresAt = preset.neverExpires ? null : (now + preset.ttlMs);
+  const createdBy = getCurrentCaregiverName();
 
+  const localInviteRecord = {
+    code,
+    createdBy,
+    createdAt: now,
+    updatedAt: now,
+    expiresAt,
+    neverExpires: preset.neverExpires,
+    multiUse: preset.multiUse,
+    ttlKey: preset.key,
+    ttlLabel: preset.label,
+    useCount: 0,
+    used: false,
+    lastUsedAt: null,
+    lastUsedBy: '',
+    revoked: false,
+    revokedAt: null
+  };
+
+  if (!Array.isArray(store.appState.familyInvites)) {
+    store.appState.familyInvites = [];
+  }
+  store.appState.familyInvites = [
+    localInviteRecord,
+    ...store.appState.familyInvites.filter(item => item && item.code !== code)
+  ].slice(0, 20);
+
+  // Сохраняем текущие данные перед приглашением, чтобы второй родитель сразу увидел актуальный журнал и список кодов
+  await saveAppState();
+
+  const inviteRef = fbFirestoreSdk.doc(db, ...FIREBASE_INVITES_COLLECTION_PATH, code);
   await fbFirestoreSdk.setDoc(inviteRef, {
     code,
     targetLogin: store.currentAccountLogin,
     babyName: store.appState?.babyName || 'Малыш',
-    createdBy: getCurrentCaregiverName(),
+    createdBy,
     createdAt: now,
+    updatedAt: now,
     expiresAt,
-    used: false
+    neverExpires: preset.neverExpires,
+    multiUse: preset.multiUse,
+    ttlKey: preset.key,
+    ttlLabel: preset.label,
+    useCount: 0,
+    used: false,
+    revoked: false
   });
 
-  return { code, expiresAt };
+  return localInviteRecord;
+}
+
+export async function revokeFamilyInviteCode(code) {
+  const cleanCode = String(code || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (!cleanCode) {
+    throw new Error('Некорректный код приглашения.');
+  }
+  if (!store.currentAccountLogin) {
+    throw new Error('Сначала войдите в аккаунт.');
+  }
+  if (!navigator.onLine) {
+    throw new Error('Для отзыва кода нужен интернет.');
+  }
+  const user = await ensureFirebaseReady();
+  if (!user || !db || !fbFirestoreSdk) {
+    throw new Error('Не удалось подключиться к облачной базе.');
+  }
+
+  const now = Date.now();
+  const inviteRef = fbFirestoreSdk.doc(db, ...FIREBASE_INVITES_COLLECTION_PATH, cleanCode);
+  await fbFirestoreSdk.setDoc(inviteRef, {
+    revoked: true,
+    revokedAt: now,
+    updatedAt: now
+  }, { merge: true });
+
+  const list = Array.isArray(store.appState.familyInvites) ? store.appState.familyInvites : [];
+  store.appState.familyInvites = list.map(item => (
+    item && item.code === cleanCode
+      ? { ...item, revoked: true, revokedAt: now, updatedAt: now }
+      : item
+  ));
+  await saveAppState();
+  return cleanCode;
 }
 
 export function selectAuthInviteRole(role) {
@@ -745,12 +892,10 @@ export async function handleAuthSubmit(e) {
       }
 
       const invite = inviteSnap.data() || {};
-      if (invite.used) {
-        showAuthError('Этот одноразовый код уже был использован. Попросите создать новый.');
-        return;
-      }
-      if (!invite.expiresAt || Date.now() > Number(invite.expiresAt)) {
-        showAuthError('Срок действия кода истёк (30 мин). Попросите создать новый код в Профиле.');
+      const now = Date.now();
+      const access = evaluateInviteAccess(invite, now);
+      if (!access.valid) {
+        showAuthError(access.reason);
         return;
       }
 
@@ -766,18 +911,45 @@ export async function handleAuthSubmit(e) {
         return;
       }
 
-      // Отмечаем одноразовый код использованным
-      await fbFirestoreSdk.setDoc(inviteRef, {
-        used: true,
-        usedAt: Date.now(),
-        usedBy: cleanRole
-      }, { merge: true }).catch(() => {});
+      const nextUseCount = (Number(invite.useCount) || 0) + 1;
+      const inviteUpdate = access.multiUse
+        ? {
+            useCount: nextUseCount,
+            lastUsedAt: now,
+            lastUsedBy: cleanRole,
+            updatedAt: now
+          }
+        : {
+            used: true,
+            usedAt: now,
+            lastUsedAt: now,
+            usedBy: cleanRole,
+            lastUsedBy: cleanRole,
+            useCount: nextUseCount,
+            updatedAt: now
+          };
+
+      await fbFirestoreSdk.setDoc(inviteRef, inviteUpdate, { merge: true }).catch(() => {});
 
       const mergedState = mergeStateWithDefaults(accountData.state);
       const members = Array.isArray(mergedState.familyMembers) ? [...mergedState.familyMembers] : [];
       if (invite.createdBy && !members.includes(invite.createdBy)) members.push(invite.createdBy);
       if (!members.includes(cleanRole)) members.push(cleanRole);
       mergedState.familyMembers = members;
+      if (Array.isArray(mergedState.familyInvites)) {
+        mergedState.familyInvites = mergedState.familyInvites.map(item => (
+          item && item.code === rawCode
+            ? {
+                ...item,
+                useCount: nextUseCount,
+                used: access.multiUse ? item.used : true,
+                lastUsedAt: now,
+                lastUsedBy: cleanRole,
+                updatedAt: now
+              }
+            : item
+        ));
+      }
 
       store.currentAccountLogin = resolvedLogin;
       // Не храним чужой passHash — saveAppState() никогда не затирает passHash пустой строкой

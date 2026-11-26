@@ -19,7 +19,12 @@ import {
   closeModal,
   showToast
 } from './utils.js';
-import { saveAppState, createFamilyInviteCode } from './firebase.js';
+import {
+  getInviteTtlOption,
+  saveAppState,
+  createFamilyInviteCode,
+  revokeFamilyInviteCode
+} from './firebase.js';
 import {
   updateNetworkStatusUI,
   isStandalonePwa,
@@ -816,6 +821,45 @@ export function cycleThemeMode() {
 }
 
 let activeInviteState = null;
+let selectedInviteTtlKey = 'forever';
+
+function formatInviteExpiryRu(inv) {
+  if (!inv) return '';
+  if (inv.neverExpires || inv.expiresAt === null) {
+    return 'Без срока действия';
+  }
+  const ts = Number(inv.expiresAt);
+  if (!Number.isFinite(ts)) return '';
+  const d = new Date(ts);
+  const now = new Date();
+  const hhmm = formatClockHHMM(ts);
+  const sameDay = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+  if (sameDay) return `до ${hhmm}`;
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  return `до ${dd}.${mm} ${hhmm}`;
+}
+
+export function selectInviteTtl(key) {
+  const opt = getInviteTtlOption(key);
+  selectedInviteTtlKey = opt.key;
+  document.querySelectorAll('.profile-invite-ttl-btn').forEach(btn => {
+    const k = btn.getAttribute('data-invite-ttl');
+    const active = k === opt.key;
+    const spanClass = k === 'forever' ? 'col-span-2 sm:col-span-1 ' : '';
+    btn.className = active
+      ? `profile-invite-ttl-btn ${spanClass}py-1.5 px-2.5 rounded-xl border border-rose-400 bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-300 text-[11px] font-bold transition`
+      : `profile-invite-ttl-btn ${spanClass}py-1.5 px-2.5 rounded-xl border border-stone-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[11px] font-semibold transition`;
+  });
+  const hint = document.getElementById('profile-invite-ttl-hint');
+  if (hint) hint.textContent = opt.description;
+  const createBtn = document.getElementById('profile-create-invite-btn');
+  if (createBtn && !createBtn.disabled) {
+    createBtn.textContent = opt.neverExpires
+      ? 'Создать бессрочный код-приглашение'
+      : `Создать код на ${opt.label}`;
+  }
+}
 
 function renderFamilyMembersList() {
   const membersWrap = document.getElementById('profile-family-members');
@@ -835,19 +879,32 @@ function renderFamilyMembersList() {
 function renderActiveInviteBox() {
   const box = document.getElementById('profile-invite-result');
   if (!box) return;
-  if (!activeInviteState || Date.now() > activeInviteState.expiresAt) {
+  const isExpired = activeInviteState && !activeInviteState.neverExpires && activeInviteState.expiresAt !== null && Date.now() > Number(activeInviteState.expiresAt);
+  if (!activeInviteState || activeInviteState.revoked || isExpired) {
     activeInviteState = null;
     box.classList.add('hidden');
     box.innerHTML = '';
     return;
   }
   const safeCode = escapeHtml(activeInviteState.code);
+  const isForever = Boolean(activeInviteState.neverExpires || activeInviteState.expiresAt === null);
+  const isMulti = Boolean(activeInviteState.multiUse || isForever);
+  const titleText = isForever
+    ? 'Бессрочный код-приглашение'
+    : `Код-приглашение (${escapeHtml(activeInviteState.ttlLabel || 'временный')})`;
+  const rightBadge = isForever ? 'Для папы / семьи' : formatInviteExpiryRu(activeInviteState);
+  const usageNote = isForever
+    ? 'Второй родитель нажимает на экране входа «По коду» и вводит эти 6 символов. По этому коду можно заходить когда угодно.'
+    : isMulti
+      ? `Временная няня или близкие нажимают «По коду» и вводят эти 6 символов. Доступ действует ${formatInviteExpiryRu(activeInviteState)}.`
+      : 'Нажмите на экране входа «По коду», введите эти 6 символов и выберите свою роль. Одноразовый код сработает один раз.';
+
   box.classList.remove('hidden');
   box.innerHTML = `
     <div class="p-3 rounded-2xl bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/70 space-y-2 animate-fade-in">
       <div class="flex items-center justify-between gap-2">
-        <span class="text-[11px] font-bold text-emerald-800 dark:text-emerald-200">Одноразовый код-приглашение</span>
-        <span class="text-[10px] font-semibold text-emerald-700/80 dark:text-emerald-300/80">до ${formatClockHHMM(activeInviteState.expiresAt)}</span>
+        <span class="text-[11px] font-bold text-emerald-800 dark:text-emerald-200">${titleText}</span>
+        <span class="text-[10px] font-semibold text-emerald-700/80 dark:text-emerald-300/80">${escapeHtml(rightBadge)}</span>
       </div>
       <div class="flex items-center justify-between gap-2">
         <span class="font-mono font-extrabold text-xl tracking-[0.22em] text-slate-900 dark:text-white select-all">${safeCode}</span>
@@ -856,10 +913,79 @@ function renderActiveInviteBox() {
         </button>
       </div>
       <p class="text-[10px] text-emerald-800/80 dark:text-emerald-300/80 leading-snug">
-        Второй родитель или няня нажимает на экране входа «По коду», вводит эти 6 символов и выбирает свою роль. Код сработает один раз.
+        ${usageNote}
       </p>
     </div>
   `;
+}
+
+function renderSavedInvitesList() {
+  const wrap = document.getElementById('profile-active-invites-list');
+  if (!wrap) return;
+  const now = Date.now();
+  const allInvites = Array.isArray(store.appState.familyInvites) ? store.appState.familyInvites : [];
+  const activeInvites = allInvites.filter(inv => {
+    if (!inv || !inv.code || inv.revoked) return false;
+    const isForever = Boolean(inv.neverExpires || inv.expiresAt === null);
+    if (!isForever) {
+      if (!inv.multiUse && inv.used) return false;
+      if (!inv.expiresAt || now > Number(inv.expiresAt)) return false;
+    }
+    return true;
+  });
+
+  if (activeInvites.length === 0) {
+    wrap.classList.add('hidden');
+    wrap.innerHTML = '';
+    return;
+  }
+
+  wrap.classList.remove('hidden');
+  wrap.innerHTML = `
+    <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 pt-1">
+      Активные коды (${activeInvites.length})
+    </div>
+    ${activeInvites.map(inv => {
+      const safeCode = escapeHtml(inv.code);
+      const isForever = Boolean(inv.neverExpires || inv.expiresAt === null);
+      const badgeLabel = isForever ? 'Бессрочный' : escapeHtml(inv.ttlLabel || 'Временный');
+      const expiryMeta = isForever ? 'Вход в любое время' : formatInviteExpiryRu(inv);
+      const usesMeta = inv.useCount > 0 ? ` • входов: ${inv.useCount}` : '';
+      return `
+        <div class="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-stone-200/80 dark:border-slate-700">
+          <div class="min-w-0">
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <span class="font-mono font-extrabold text-xs tracking-wider text-slate-900 dark:text-slate-100">${safeCode}</span>
+              <span class="px-1.5 py-0.5 rounded-md text-[10px] font-bold ${isForever ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-300' : 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'}">${badgeLabel}</span>
+            </div>
+            <div class="text-[10px] text-slate-500 dark:text-slate-400 truncate">${escapeHtml(expiryMeta)}${escapeHtml(usesMeta)}</div>
+          </div>
+          <div class="flex items-center gap-1 shrink-0">
+            <button type="button" onclick="copyFamilyInviteCode('${safeCode}')" class="px-2 py-1 rounded-lg bg-warmgray dark:bg-slate-800 hover:bg-stone-200 dark:hover:bg-slate-700 text-[10px] font-bold text-slate-700 dark:text-slate-200 transition">
+              Копир.
+            </button>
+            <button type="button" onclick="revokeFamilyInviteUI('${safeCode}')" class="px-2 py-1 rounded-lg bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-[10px] font-bold text-rose-600 dark:text-rose-300 transition">
+              Отозвать
+            </button>
+          </div>
+        </div>
+      `;
+    }).join('')}
+  `;
+}
+
+export async function revokeFamilyInviteUI(code) {
+  try {
+    const revokedCode = await revokeFamilyInviteCode(code);
+    if (activeInviteState && activeInviteState.code === revokedCode) {
+      activeInviteState = null;
+    }
+    renderActiveInviteBox();
+    renderSavedInvitesList();
+    showToast(`Код ${revokedCode} отозван`);
+  } catch (err) {
+    showToast(err?.message || 'Не удалось отозвать код');
+  }
 }
 
 export function selectProfileCaregiverRole(role) {
@@ -881,9 +1007,10 @@ export async function generateFamilyInviteUI() {
     btn.textContent = 'Создаём код...';
   }
   try {
-    const result = await createFamilyInviteCode();
+    const result = await createFamilyInviteCode(selectedInviteTtlKey);
     activeInviteState = result;
     renderActiveInviteBox();
+    renderSavedInvitesList();
     showToast(`Код приглашения создан: ${result.code}`);
   } catch (err) {
     showToast(err?.message || 'Не удалось создать код');
@@ -892,6 +1019,7 @@ export async function generateFamilyInviteUI() {
       btn.disabled = false;
       btn.textContent = prevText;
     }
+    selectInviteTtl(selectedInviteTtlKey);
   }
 }
 
@@ -929,8 +1057,10 @@ export function openProfileModal() {
   const roleInp = document.getElementById('profile-caregiver-input');
   if (roleInp) roleInp.value = currentRole;
   selectProfileCaregiverRole(currentRole);
+  selectInviteTtl(selectedInviteTtlKey);
   renderFamilyMembersList();
   renderActiveInviteBox();
+  renderSavedInvitesList();
 
   updateNetworkStatusUI();
   syncRuDateDisplays();

@@ -202,18 +202,125 @@ export function sanitizeForFirestore(value) {
   }
 }
 
+const activeOverlayLocks = new Set();
+let isBackgroundScrollLocked = false;
+let savedBackgroundScrollY = 0;
+
+function applyBackgroundScrollLock() {
+  if (isBackgroundScrollLocked || typeof document === 'undefined' || typeof window === 'undefined') return;
+  const html = document.documentElement;
+  const body = document.body;
+  if (!html || !body) return;
+  savedBackgroundScrollY = Number(window.scrollY || html.scrollTop || body.scrollTop || 0);
+  isBackgroundScrollLocked = true;
+  html.style.overflow = 'hidden';
+  html.style.overscrollBehavior = 'none';
+  body.style.overflow = 'hidden';
+  body.style.position = 'fixed';
+  body.style.top = `-${savedBackgroundScrollY}px`;
+  body.style.left = '0';
+  body.style.right = '0';
+  body.style.width = '100%';
+}
+
+function releaseBackgroundScrollLock({ restoreScroll = true } = {}) {
+  if (!isBackgroundScrollLocked || typeof document === 'undefined' || typeof window === 'undefined') return;
+  const html = document.documentElement;
+  const body = document.body;
+  const yToRestore = savedBackgroundScrollY;
+  isBackgroundScrollLocked = false;
+  savedBackgroundScrollY = 0;
+  if (html) {
+    html.style.overflow = '';
+    html.style.overscrollBehavior = '';
+  }
+  if (body) {
+    body.style.overflow = '';
+    body.style.position = '';
+    body.style.top = '';
+    body.style.left = '';
+    body.style.right = '';
+    body.style.width = '';
+  }
+  if (restoreScroll) {
+    if (typeof window.scrollTo === 'function') {
+      try {
+        window.scrollTo({ top: yToRestore, left: 0, behavior: 'instant' });
+      } catch (_) {
+        window.scrollTo(0, yToRestore);
+      }
+    }
+    if (html) html.scrollTop = yToRestore;
+    if (body) body.scrollTop = yToRestore;
+  }
+}
+
+export function syncBackgroundScrollLock() {
+  if (typeof document !== 'undefined') {
+    for (const id of Array.from(activeOverlayLocks)) {
+      const el = document.getElementById(id);
+      if (!el || el.classList.contains('hidden')) {
+        activeOverlayLocks.delete(id);
+      }
+    }
+  }
+  if (activeOverlayLocks.size > 0) {
+    applyBackgroundScrollLock();
+  } else {
+    releaseBackgroundScrollLock({ restoreScroll: true });
+  }
+}
+
+export function lockScrollForOverlay(id) {
+  if (!id) return;
+  activeOverlayLocks.add(String(id));
+  applyBackgroundScrollLock();
+}
+
+export function unlockScrollForOverlay(id) {
+  if (id) activeOverlayLocks.delete(String(id));
+  syncBackgroundScrollLock();
+}
+
+export function getActiveOverlayLocksCount() {
+  return activeOverlayLocks.size;
+}
+
+export function scrollPageToTop() {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return;
+  if (isBackgroundScrollLocked) {
+    savedBackgroundScrollY = 0;
+    if (document.body) document.body.style.top = '0px';
+    return;
+  }
+  if (typeof window.scrollTo === 'function') {
+    try {
+      window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+    } catch (_) {
+      window.scrollTo(0, 0);
+    }
+  }
+  if (document.documentElement) document.documentElement.scrollTop = 0;
+  if (document.body) document.body.scrollTop = 0;
+}
+
 export function openModal(id) {
   const el = document.getElementById(id);
   if (!el) return;
   el.classList.remove('hidden');
   el.classList.add('flex');
+  lockScrollForOverlay(id);
 }
 
 export function closeModal(id) {
   const el = document.getElementById(id);
-  if (!el) return;
+  if (!el) {
+    unlockScrollForOverlay(id);
+    return;
+  }
   el.classList.add('hidden');
   el.classList.remove('flex');
+  unlockScrollForOverlay(id);
 }
 
 let toastTimer = null;

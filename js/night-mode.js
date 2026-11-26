@@ -1,7 +1,7 @@
 // Ночной режим «для одной руки» — ультра-тёмный тёплый интерфейс с крупными кнопками кормления и сна
 
 import { store, computeHereAndNowMetrics, getCurrentCaregiverName } from './state.js';
-import { escapeHtml, formatMinutesHuman, formatClockHHMM } from './utils.js';
+import { escapeHtml, formatMinutesHuman, formatClockHHMM, lockScrollForOverlay, unlockScrollForOverlay } from './utils.js';
 import { setFeedingSubtype, toggleTimer, addQuickCareLog } from './tabs/journal.js';
 
 let isNightModeOpen = false;
@@ -50,6 +50,7 @@ export function openNightMode() {
     overlay.classList.remove('hidden');
     overlay.classList.add('flex');
   }
+  lockScrollForOverlay('night-mode-overlay');
   const metaTheme = document.getElementById('meta-theme-color');
   if (metaTheme) metaTheme.setAttribute('content', '#070302');
   renderNightMode();
@@ -63,6 +64,7 @@ export function closeNightMode() {
     overlay.classList.add('hidden');
     overlay.classList.remove('flex');
   }
+  unlockScrollForOverlay('night-mode-overlay');
   const isDark = document.documentElement.classList.contains('dark');
   const metaTheme = document.getElementById('meta-theme-color');
   if (metaTheme) metaTheme.setAttribute('content', isDark ? '#020617' : '#FDFBF7');

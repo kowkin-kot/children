@@ -30,6 +30,7 @@ export function createDefaultState(babyName = '', babyDob = '') {
     solidsMatrix: {},
     customSolidsFoods: [],
     familyMembers: [],
+    familyInvites: [],
     teethMap: {},
     vaccinesMap: {},
     vaccineFilter: 'all',
@@ -191,6 +192,48 @@ function normalizeVaccinesCollection(rawObj) {
   return out;
 }
 
+function normalizeFamilyInvitesList(rawList) {
+  if (!Array.isArray(rawList)) return [];
+  const cutoffMs = Date.now() - 30 * 86400000;
+  const byCode = new Map();
+  for (const item of rawList) {
+    if (!item || typeof item !== 'object') continue;
+    const code = String(item.code || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
+    if (!code) continue;
+    const neverExpires = Boolean(item.neverExpires || item.expiresAt === null);
+    const expiresAtNum = neverExpires ? null : (Number.isFinite(Number(item.expiresAt)) ? Number(item.expiresAt) : null);
+    const createdAt = Number(item.createdAt) || Date.now();
+    const revoked = Boolean(item.revoked);
+    const revokedAt = item.revokedAt ? Number(item.revokedAt) : null;
+    if (!neverExpires && expiresAtNum && expiresAtNum < cutoffMs && createdAt < cutoffMs) continue;
+    if (revoked && revokedAt && revokedAt < cutoffMs) continue;
+    const normalized = {
+      code,
+      createdBy: typeof item.createdBy === 'string' && item.createdBy.trim() ? item.createdBy.trim().slice(0, 40) : '',
+      createdAt,
+      updatedAt: Number(item.updatedAt) || revokedAt || Number(item.lastUsedAt) || createdAt,
+      expiresAt: expiresAtNum,
+      neverExpires,
+      multiUse: Boolean(item.multiUse || neverExpires),
+      ttlKey: typeof item.ttlKey === 'string' && item.ttlKey ? item.ttlKey : (neverExpires ? 'forever' : '30m'),
+      ttlLabel: typeof item.ttlLabel === 'string' && item.ttlLabel ? item.ttlLabel : (neverExpires ? 'Бессрочный' : '30 мин'),
+      useCount: Math.max(0, Math.round(Number(item.useCount) || 0)),
+      used: Boolean(item.used),
+      lastUsedAt: item.lastUsedAt ? Number(item.lastUsedAt) : (item.usedAt ? Number(item.usedAt) : null),
+      lastUsedBy: typeof item.lastUsedBy === 'string' ? item.lastUsedBy.trim().slice(0, 40) : (typeof item.usedBy === 'string' ? item.usedBy.trim().slice(0, 40) : ''),
+      revoked,
+      revokedAt
+    };
+    const prev = byCode.get(code);
+    if (!prev || normalized.updatedAt >= prev.updatedAt) {
+      byCode.set(code, normalized);
+    }
+  }
+  return Array.from(byCode.values())
+    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+    .slice(0, 20);
+}
+
 export function mergeStateWithDefaults(rawState) {
   const legacyProfile = (rawState && typeof rawState.profile === 'object' && rawState.profile) ? rawState.profile : {};
   const resolvedBabyName = rawState?.babyName || legacyProfile.name || 'Малыш';
@@ -319,6 +362,7 @@ export function mergeStateWithDefaults(rawState) {
     solidsMatrix: rawState.solidsMatrix && typeof rawState.solidsMatrix === 'object' ? { ...rawState.solidsMatrix } : {},
     customSolidsFoods: Array.isArray(rawState.customSolidsFoods) ? rawState.customSolidsFoods : [],
     familyMembers: Array.isArray(rawState.familyMembers) ? rawState.familyMembers.filter(m => typeof m === 'string' && m.trim()) : [],
+    familyInvites: normalizeFamilyInvitesList(rawState.familyInvites),
     teethMap: {
       ...(rawState.toothRecords || {}),
       ...(rawState.teeth || {}),
@@ -400,6 +444,7 @@ export function mergeAccountStates(statesList) {
   const solidsMatrix = {};
   const customSolidsMap = new Map();
   const familyMembersSet = new Set();
+  const familyInvitesMap = new Map();
   const notifHistoryMap = new Map();
   const mergedSnoozedUntil = {};
   const mergedDeletedIds = {
@@ -558,6 +603,28 @@ export function mergeAccountStates(statesList) {
     for (const fm of norm.familyMembers || []) {
       if (typeof fm === 'string' && fm.trim()) familyMembersSet.add(fm.trim());
     }
+    for (const inv of norm.familyInvites || []) {
+      if (!inv || !inv.code) continue;
+      const prev = familyInvitesMap.get(inv.code);
+      if (!prev) {
+        familyInvitesMap.set(inv.code, { ...inv });
+      } else {
+        const useLatest = (Number(inv.updatedAt) || 0) >= (Number(prev.updatedAt) || 0);
+        const baseObj = useLatest ? inv : prev;
+        const revA = Boolean(prev.revoked);
+        const revB = Boolean(inv.revoked);
+        const revoked = revA || revB;
+        const revokedAt = revoked ? Math.max(Number(prev.revokedAt) || 0, Number(inv.revokedAt) || 0) || null : null;
+        familyInvitesMap.set(inv.code, {
+          ...baseObj,
+          useCount: Math.max(Number(prev.useCount) || 0, Number(inv.useCount) || 0),
+          used: Boolean(prev.used || inv.used),
+          revoked,
+          revokedAt,
+          updatedAt: Math.max(Number(prev.updatedAt) || 0, Number(inv.updatedAt) || 0, revokedAt || 0)
+        });
+      }
+    }
     for (const [sk, sv] of Object.entries(norm.notifications?.snoozedUntil || {})) {
       const ts = Number(sv) || 0;
       if (ts > (mergedSnoozedUntil[sk] || 0)) {
@@ -663,6 +730,9 @@ export function mergeAccountStates(statesList) {
     solidsMatrix,
     customSolidsFoods: Array.from(customSolidsMap.values()),
     familyMembers: Array.from(familyMembersSet),
+    familyInvites: Array.from(familyInvitesMap.values())
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+      .slice(0, 20),
     teethMap,
     vaccinesMap,
     notifications: {

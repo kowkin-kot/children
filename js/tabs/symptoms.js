@@ -3,9 +3,23 @@
 import { SYMPTOMS_DATA } from '../data.js';
 
 let activeAdviceCategory = 'all';
+let activeAdviceAge = 'all';
+
+const ADVICE_AGE_RANGES = {
+  all: null,
+  '0-3m': [0, 3],
+  '3-12m': [3, 12],
+  '1-3y': [12, 36],
+  '3-5y': [36, 60]
+};
 
 export function setAdviceCategory(category) {
   activeAdviceCategory = category || 'all';
+  renderSymptoms();
+}
+
+export function setAdviceAgeFilter(ageGroup) {
+  activeAdviceAge = Object.prototype.hasOwnProperty.call(ADVICE_AGE_RANGES, ageGroup) ? ageGroup : 'all';
   renderSymptoms();
 }
 
@@ -22,14 +36,32 @@ export function renderSymptoms() {
       : 'advice-cat-btn px-3 py-1.5 rounded-xl text-xs font-bold bg-warmgray dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition shrink-0';
   });
 
+  document.querySelectorAll('.advice-age-btn').forEach(btn => {
+    const isSel = btn.getAttribute('data-advice-age') === activeAdviceAge;
+    btn.className = isSel
+      ? 'advice-age-btn px-2.5 py-1 rounded-lg text-[11px] font-bold bg-slate-800 dark:bg-slate-100 text-white dark:text-slate-900 shadow-2xs transition shrink-0'
+      : 'advice-age-btn px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-warmgray/80 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition shrink-0';
+  });
+
+  const ageBounds = ADVICE_AGE_RANGES[activeAdviceAge];
+
   const filtered = SYMPTOMS_DATA.filter(item => {
     if (activeAdviceCategory !== 'all' && item.category !== activeAdviceCategory) {
       return false;
+    }
+    if (ageBounds) {
+      const minM = Number.isFinite(item.ageMinMonths) ? item.ageMinMonths : 0;
+      const maxM = Number.isFinite(item.ageMaxMonths) ? item.ageMaxMonths : 60;
+      if (maxM < ageBounds[0] || minM > ageBounds[1]) {
+        return false;
+      }
     }
     if (!query) return true;
     return (
       item.title.toLowerCase().includes(query) ||
       item.summary.toLowerCase().includes(query) ||
+      (item.age || '').toLowerCase().includes(query) ||
+      (item.tags || '').toLowerCase().includes(query) ||
       (item.categoryLabel || '').toLowerCase().includes(query) ||
       (item.importantNote || '').toLowerCase().includes(query) ||
       (item.specialistNote || '').toLowerCase().includes(query) ||
@@ -37,6 +69,14 @@ export function renderSymptoms() {
       item.steps.some(s => s.toLowerCase().includes(query))
     );
   });
+
+  if (ageBounds) {
+    filtered.sort((a, b) => {
+      const spanA = (Number.isFinite(a.ageMaxMonths) ? a.ageMaxMonths : 60) - (Number.isFinite(a.ageMinMonths) ? a.ageMinMonths : 0);
+      const spanB = (Number.isFinite(b.ageMaxMonths) ? b.ageMaxMonths : 60) - (Number.isFinite(b.ageMinMonths) ? b.ageMinMonths : 0);
+      return spanA - spanB;
+    });
+  }
 
   const countBadge = document.getElementById('advice-count-badge');
   if (countBadge) {
@@ -46,7 +86,7 @@ export function renderSymptoms() {
   if (filtered.length === 0) {
     grid.innerHTML = `
       <div class="col-span-full bg-white dark:bg-slate-900 rounded-3xl border border-stone-200/70 dark:border-slate-800 p-8 text-center text-xs text-slate-400">
-        По вашему запросу советов не найдено. Попробуйте изменить запрос или выбрать категорию «Все».
+        По вашему запросу советов не найдено. Попробуйте изменить запрос или сбросить фильтры категории и возраста.
       </div>
     `;
     return;

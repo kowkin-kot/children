@@ -7,7 +7,7 @@ import {
   readLocalAccounts,
   readLocalSession
 } from './state.js';
-import { getTodayIso, bindRuDateInputs, closeModal } from './utils.js';
+import { getTodayIso, bindRuDateInputs, closeModal, scrollPageToTop } from './utils.js';
 import {
   setupPwaManifestAndIcons,
   downloadAppIconPng,
@@ -48,7 +48,9 @@ import {
   openProfileModal,
   selectProfileGender,
   selectProfileCaregiverRole,
+  selectInviteTtl,
   generateFamilyInviteUI,
+  revokeFamilyInviteUI,
   copyFamilyInviteCode,
   saveProfileSettings
 } from './ui-shell.js';
@@ -148,10 +150,10 @@ import {
   deleteGrowthRecord,
   renderGrowthTab
 } from './tabs/growth.js';
-import { renderSymptoms, setAdviceCategory } from './tabs/symptoms.js';
+import { renderSymptoms, setAdviceCategory, setAdviceAgeFilter } from './tabs/symptoms.js';
 import { addDiaryEntry, deleteDiaryEntry, renderDiaryTab } from './tabs/diary.js';
 
-function switchTab(tabName) {
+function switchTab(tabName, options = {}) {
   store.activeTab = tabName;
   document.querySelectorAll('.tab-section').forEach(sec => {
     sec.classList.toggle('hidden', sec.id !== `tab-${tabName}`);
@@ -180,6 +182,10 @@ function switchTab(tabName) {
   if (tabName === 'growth') renderGrowthTab();
   if (tabName === 'symptoms') renderSymptoms();
   if (tabName === 'diary') renderDiaryTab();
+
+  if (!options?.preserveScroll) {
+    scrollPageToTop();
+  }
 }
 
 function renderAll() {
@@ -188,7 +194,7 @@ function renderAll() {
   evaluateSmartNotifications();
   renderNightMode();
   renderMilkBankModal();
-  switchTab(store.activeTab);
+  switchTab(store.activeTab, { preserveScroll: true });
 }
 
 function enterMainApp() {
@@ -197,6 +203,7 @@ function enterMainApp() {
   applyThemeMode(store.appState.themeMode || 'auto');
   renderPwaInstallUI();
   renderAll();
+  scrollPageToTop();
   maybeAutoOpenNightMode({ forceOnLaunch: true });
 }
 
@@ -268,13 +275,16 @@ Object.assign(window, {
   deleteGrowthRecord,
   renderSymptoms,
   setAdviceCategory,
+  setAdviceAgeFilter,
   addDiaryEntry,
   deleteDiaryEntry,
   closeModal,
   saveProfileSettings,
   selectProfileGender,
   selectProfileCaregiverRole,
+  selectInviteTtl,
   generateFamilyInviteUI,
+  revokeFamilyInviteUI,
   copyFamilyInviteCode,
   setThemeMode,
   triggerPwaInstall,
