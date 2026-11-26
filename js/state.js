@@ -17,9 +17,12 @@ export function createDefaultState(babyName = '', babyDob = '') {
     timers: {
       feeding: { active: false, startTime: null, subtype: 'left' },
       sleep: { active: false, startTime: null, sleepType: 'day' },
-      walk: { active: false, startTime: null }
+      walk: { active: false, startTime: null },
+      pumping: { active: false, startTime: null }
     },
     journalLogs: [],
+    milkBank: [],
+    milkFeedingEnded: false,
     rhythmDays: 7,
     solidsMatrix: {},
     customSolidsFoods: [],
@@ -231,7 +234,8 @@ export function mergeStateWithDefaults(rawState) {
     timers: {
       feeding: { ...base.timers.feeding, ...(rawState.timers?.feeding || {}) },
       sleep: { ...base.timers.sleep, ...(rawState.timers?.sleep || {}) },
-      walk: { ...base.timers.walk, ...(rawState.timers?.walk || {}) }
+      walk: { ...base.timers.walk, ...(rawState.timers?.walk || {}) },
+      pumping: { ...base.timers.pumping, ...(rawState.timers?.pumping || {}) }
     },
     notifications: {
       ...base.notifications,
@@ -244,6 +248,38 @@ export function mergeStateWithDefaults(rawState) {
       ...(rawState.completedMilestones || {})
     },
     journalLogs: mergedJournalLogs,
+    milkBank: Array.isArray(rawState.milkBank)
+      ? rawState.milkBank
+        .filter(item => item && typeof item === 'object')
+        .map(item => {
+          const leftMl = Math.max(0, Math.round(Number(item.leftMl) || 0));
+          const rightMl = Math.max(0, Math.round(Number(item.rightMl) || 0));
+          const computedTotal = Math.max(0, Math.round(Number(item.totalMl) || (leftMl + rightMl)));
+          const initialMl = Math.max(computedTotal, Math.round(Number(item.initialMl) || computedTotal));
+          const storage = ['fridge', 'freezer', 'room'].includes(item.storage) ? item.storage : 'fridge';
+          const status = item.status === 'used' ? 'used' : 'stored';
+          const pumpedAt = Number(item.pumpedAt) || Date.now();
+          return {
+            id: String(item.id || `milk_${pumpedAt}_${Math.random().toString(36).slice(2, 6)}`),
+            pumpedAt,
+            leftMl,
+            rightMl,
+            totalMl: computedTotal,
+            initialMl,
+            storage,
+            status,
+            usedAt: item.usedAt ? Number(item.usedAt) : null,
+            thawedAt: item.thawedAt ? Number(item.thawedAt) : null,
+            durationMin: Math.max(0, Math.round(Number(item.durationMin) || 0)),
+            note: typeof item.note === 'string' ? item.note.trim().slice(0, 120) : '',
+            author: typeof item.author === 'string' && item.author.trim() ? item.author.trim().slice(0, 40) : '',
+            journalLogId: item.journalLogId ? String(item.journalLogId) : '',
+            updatedAt: Number(item.updatedAt) || Number(item.usedAt) || pumpedAt
+          };
+        })
+        .sort((a, b) => (b.pumpedAt || 0) - (a.pumpedAt || 0))
+      : [],
+    milkFeedingEnded: Boolean(rawState.milkFeedingEnded),
     solidsMatrix: rawState.solidsMatrix && typeof rawState.solidsMatrix === 'object' ? { ...rawState.solidsMatrix } : {},
     customSolidsFoods: Array.isArray(rawState.customSolidsFoods) ? rawState.customSolidsFoods : [],
     familyMembers: Array.isArray(rawState.familyMembers) ? rawState.familyMembers.filter(m => typeof m === 'string' && m.trim()) : [],
@@ -279,7 +315,8 @@ export function getStateRecordCount(rawState) {
   const solidsCount = norm.solidsMatrix && typeof norm.solidsMatrix === 'object'
     ? Object.values(norm.solidsMatrix).filter(s => s && s.tried).length
     : 0;
-  return journalCount + diaryCount + growthCount + milestonesCount + teethCount + vaccinesCount + solidsCount;
+  const milkBankCount = Array.isArray(norm.milkBank) ? norm.milkBank.length : 0;
+  return journalCount + diaryCount + growthCount + milestonesCount + teethCount + vaccinesCount + solidsCount + milkBankCount;
 }
 
 // Безопасное объединение нескольких состояний (от более старого к более новому) без потери записей
@@ -307,6 +344,7 @@ export function mergeAccountStates(statesList) {
   let explicitGender = '';
 
   const journalMap = new Map();
+  const milkBankMap = new Map();
   const diaryMap = new Map();
   const growthMap = new Map();
   const milestones = {};
@@ -335,6 +373,13 @@ export function mergeAccountStates(statesList) {
     for (const item of norm.journalLogs || []) {
       const key = item.id || `${item.type}_${item.startTime}_${item.endTime || 0}`;
       journalMap.set(key, item);
+    }
+    for (const batch of norm.milkBank || []) {
+      if (!batch || !batch.id) continue;
+      const prev = milkBankMap.get(batch.id);
+      if (!prev || (Number(batch.updatedAt) || 0) >= (Number(prev.updatedAt) || 0)) {
+        milkBankMap.set(batch.id, batch);
+      }
     }
     for (const entry of norm.diaryEntries || []) {
       const key = entry.id || `${entry.date}_${entry.title}`;
@@ -384,6 +429,7 @@ export function mergeAccountStates(statesList) {
     babyDob: explicitBabyDob || latestNorm.babyDob || getTodayIso(),
     babyGender: explicitGender || latestNorm.babyGender || 'girl',
     journalLogs: Array.from(journalMap.values()).sort((a, b) => (b.startTime || 0) - (a.startTime || 0)),
+    milkBank: Array.from(milkBankMap.values()).sort((a, b) => (b.pumpedAt || 0) - (a.pumpedAt || 0)),
     diaryEntries: Array.from(diaryMap.values()),
     growthRecords: Array.from(growthMap.values()),
     completedMilestones: milestones,
@@ -446,7 +492,9 @@ export const hooks = {
   enterMainApp: () => {},
   renderNightMode: () => {},
   renderSolidsMatrixSummary: () => {},
-  syncSolidsMatrixFromLog: () => {}
+  syncSolidsMatrixFromLog: () => {},
+  renderMilkBankSummary: () => {},
+  renderMilkBankModal: () => {}
 };
 
 export function readLocalAccounts() {
@@ -732,11 +780,13 @@ export function computeHereAndNowMetrics() {
       }
     });
 
+    let dayOverfatigueCount = 0;
     daySleeps.sort((a, b) => a.start - b.start);
     for (let j = 1; j < daySleeps.length; j++) {
       const gapMin = Math.round((daySleeps[j].start - daySleeps[j - 1].end) / 60000);
       if (gapMin > norms.wakeWindowMin + 25 && gapMin < 600) {
         overfatigueCount++;
+        dayOverfatigueCount++;
       }
     }
 
@@ -745,7 +795,10 @@ export function computeHereAndNowMetrics() {
       return t >= dayStart && t < dayEnd;
     });
 
-    if (hasLogsThatDay && i > 0) {
+    const isToday = i === 0;
+    const includedInDebt = hasLogsThatDay && !isToday;
+
+    if (includedInDebt) {
       activeDaysCount++;
       totalActualSleepMin += daySleepMin;
       totalTargetSleepMin += norms.dailySleepTargetMin;
@@ -755,7 +808,10 @@ export function computeHereAndNowMetrics() {
       dateLabel,
       sleepMin: daySleepMin,
       targetMin: norms.dailySleepTargetMin,
-      hasData: hasLogsThatDay
+      hasData: hasLogsThatDay,
+      isToday,
+      includedInDebt,
+      dayOverfatigueCount
     });
   }
 
@@ -777,6 +833,8 @@ export function computeHereAndNowMetrics() {
     countdownMin,
     recommendedBedtimeTs,
     activeDaysCount,
+    totalActualSleepMin,
+    totalTargetSleepMin,
     sleepDebtMin,
     overfatigueCount,
     daysBreakdown

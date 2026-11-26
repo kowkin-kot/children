@@ -483,7 +483,7 @@
             <svg class="w-4 h-4 text-orange-500 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m10.5 20.5 10-10a4.95 4.95 0 1 0-7-7l-10 10a4.95 4.95 0 1 0 7 7Z"/><path d="m8.5 8.5 7 7"/></svg>
             <span class="truncate">Витамин D3</span>
           </button>
-          <button type="button" onclick="addQuickCareLog('pumping', 'Сцеживание')" class="p-2.5 rounded-2xl bg-warmgray/70 dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/50 border border-stone-200/60 dark:border-slate-700 flex items-center gap-2 text-xs font-semibold transition">
+          <button type="button" onclick="openMilkBankModal('pump')" class="p-2.5 rounded-2xl bg-warmgray/70 dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/50 border border-stone-200/60 dark:border-slate-700 flex items-center gap-2 text-xs font-semibold transition">
             <svg class="w-4 h-4 text-rose-500 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v6"/><path d="M8 8h8l1 12H7L8 8z"/></svg>
             <span class="truncate">Сцеживание</span>
           </button>
@@ -640,6 +640,9 @@
 
     <!-- ==================== ВКЛАДКА 6: ДНЕВНИК ДОСТИЖЕНИЙ ==================== -->
     <section id="tab-diary" class="tab-section hidden space-y-4 animate-fade-in">
+      <!-- Трекер сцеживания и Банк молока -->
+      <div id="milk-bank-summary-card"></div>
+
       <!-- Матрица прикорма: Первые 100 продуктов и аллергены -->
       <div id="solids-matrix-summary-card"></div>
 
@@ -1016,6 +1019,17 @@
           </select>
         </div>
 
+        <div id="manual-log-pumping-wrap" class="hidden grid grid-cols-2 gap-3">
+          <div class="min-w-0">
+            <label for="manual-log-pump-left" class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Левая грудь (мл)</label>
+            <input type="number" id="manual-log-pump-left" min="0" max="600" placeholder="0" class="w-full min-w-0 px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs" />
+          </div>
+          <div class="min-w-0">
+            <label for="manual-log-pump-right" class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Правая грудь (мл)</label>
+            <input type="number" id="manual-log-pump-right" min="0" max="600" placeholder="0" class="w-full min-w-0 px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs" />
+          </div>
+        </div>
+
         <div class="min-w-0">
           <label for="manual-log-start" class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Время начала</label>
           <input type="datetime-local" id="manual-log-start" required oninput="syncManualLogEndFromStartOrDuration()" onchange="syncManualLogEndFromStartOrDuration()" class="w-full min-w-0 px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs" />
@@ -1163,6 +1177,171 @@
           По выбранному фильтру продуктов пока нет.
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- ==================== МОДАЛЬНОЕ ОКНО: ТРЕКЕР СЦЕЖИВАНИЯ И «БАНК МОЛОКА» ==================== -->
+  <div id="modal-milk-bank" class="fixed inset-0 z-[55] hidden items-end sm:items-center justify-center bg-slate-900/45 dark:bg-black/70 backdrop-blur-xs p-0 sm:p-4 overflow-y-auto">
+    <div class="bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl max-w-2xl w-full max-h-[92vh] flex flex-col shadow-xl border border-stone-100 dark:border-slate-800 my-auto animate-fade-in overflow-hidden">
+      <!-- Шапка -->
+      <div class="p-4 sm:p-5 border-b border-stone-100 dark:border-slate-800 flex items-start justify-between gap-2 shrink-0">
+        <div class="min-w-0">
+          <h3 class="font-display font-extrabold text-base sm:text-lg text-slate-900 dark:text-slate-100">Трекер сцеживания и Банк молока</h3>
+          <p id="milk-modal-subtitle" class="text-xs text-slate-500 dark:text-slate-400">В запасе: 0 мл • Сегодня сцежено: 0 мл</p>
+        </div>
+        <div class="flex items-center gap-1.5 shrink-0">
+          <button type="button" onclick="toggleMilkPumpForm()" class="px-2.5 py-1.5 rounded-xl bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-600 dark:text-rose-300 text-[11px] font-bold transition">
+            <span id="milk-pump-form-toggle-label">Скрыть форму</span>
+          </button>
+          <button type="button" onclick="closeModal('modal-milk-bank')" aria-label="Закрыть" class="p-1.5 rounded-xl hover:bg-stone-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition">
+            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Прокручиваемое тело -->
+      <div class="p-4 sm:p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:pb-5 overflow-y-auto space-y-4 flex-1">
+        <!-- Форма нового сцеживания -->
+        <form id="milk-pump-form-wrap" onsubmit="savePumpingSession(event)" class="p-3.5 sm:p-4 rounded-2xl bg-warmgray/60 dark:bg-slate-800/70 border border-stone-200/80 dark:border-slate-700 space-y-3">
+          <!-- Живой таймер сцеживания -->
+          <div class="flex items-center justify-between gap-2 pb-2.5 border-b border-stone-200/70 dark:border-slate-700/70">
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="text-xs font-bold text-slate-700 dark:text-slate-200">Таймер сцеживания:</span>
+              <span id="milk-pump-timer-display" class="font-mono font-extrabold text-sm text-rose-500 tabular-nums">00:00</span>
+            </div>
+            <button type="button" id="milk-pump-timer-btn" onclick="togglePumpingTimer()" class="px-3 py-1.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold transition shrink-0">
+              Старт таймер
+            </button>
+          </div>
+
+          <!-- Левая и правая грудь (мл) -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div class="p-2.5 rounded-2xl bg-white dark:bg-slate-900 border border-stone-200/80 dark:border-slate-700 space-y-1.5">
+              <div class="flex items-center justify-between">
+                <label for="milk-pump-left" class="text-xs font-bold text-slate-800 dark:text-slate-100">Левая грудь (мл)</label>
+                <button type="button" onclick="adjustPumpMl('left', 0, true)" class="text-[10px] font-semibold text-slate-400 hover:text-rose-500">Сброс</button>
+              </div>
+              <input type="number" id="milk-pump-left" min="0" max="600" placeholder="0" oninput="updatePumpTotalPreview()" class="w-full px-3 py-2 rounded-xl bg-warmgray/70 dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-sm font-bold tabular-nums focus:outline-none focus:ring-2 focus:ring-rose-400" />
+              <div class="flex items-center gap-1">
+                <button type="button" onclick="adjustPumpMl('left', 10)" class="flex-1 py-1 rounded-lg bg-warmgray dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/50 text-[11px] font-bold text-slate-600 dark:text-slate-300 transition">+10</button>
+                <button type="button" onclick="adjustPumpMl('left', 30)" class="flex-1 py-1 rounded-lg bg-warmgray dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/50 text-[11px] font-bold text-slate-600 dark:text-slate-300 transition">+30</button>
+                <button type="button" onclick="adjustPumpMl('left', 50)" class="flex-1 py-1 rounded-lg bg-warmgray dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/50 text-[11px] font-bold text-slate-600 dark:text-slate-300 transition">+50</button>
+              </div>
+            </div>
+
+            <div class="p-2.5 rounded-2xl bg-white dark:bg-slate-900 border border-stone-200/80 dark:border-slate-700 space-y-1.5">
+              <div class="flex items-center justify-between">
+                <label for="milk-pump-right" class="text-xs font-bold text-slate-800 dark:text-slate-100">Правая грудь (мл)</label>
+                <button type="button" onclick="adjustPumpMl('right', 0, true)" class="text-[10px] font-semibold text-slate-400 hover:text-rose-500">Сброс</button>
+              </div>
+              <input type="number" id="milk-pump-right" min="0" max="600" placeholder="0" oninput="updatePumpTotalPreview()" class="w-full px-3 py-2 rounded-xl bg-warmgray/70 dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-sm font-bold tabular-nums focus:outline-none focus:ring-2 focus:ring-rose-400" />
+              <div class="flex items-center gap-1">
+                <button type="button" onclick="adjustPumpMl('right', 10)" class="flex-1 py-1 rounded-lg bg-warmgray dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/50 text-[11px] font-bold text-slate-600 dark:text-slate-300 transition">+10</button>
+                <button type="button" onclick="adjustPumpMl('right', 30)" class="flex-1 py-1 rounded-lg bg-warmgray dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/50 text-[11px] font-bold text-slate-600 dark:text-slate-300 transition">+30</button>
+                <button type="button" onclick="adjustPumpMl('right', 50)" class="flex-1 py-1 rounded-lg bg-warmgray dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/50 text-[11px] font-bold text-slate-600 dark:text-slate-300 transition">+50</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Дата/время и длительность -->
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            <div class="sm:col-span-2 min-w-0">
+              <label for="milk-pump-datetime" class="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">Дата и время сцеживания</label>
+              <input type="datetime-local" id="milk-pump-datetime" class="w-full min-w-0 px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-stone-200 dark:border-slate-700 text-xs" />
+            </div>
+            <div class="min-w-0">
+              <label for="milk-pump-duration" class="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">Длительность (мин)</label>
+              <input type="number" id="milk-pump-duration" min="0" max="240" placeholder="15" class="w-full min-w-0 px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-stone-200 dark:border-slate-700 text-xs" />
+            </div>
+          </div>
+
+          <!-- Место хранения в банке -->
+          <div class="space-y-1.5">
+            <div class="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Куда убрать порцию в Банк молока?</div>
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+              <button type="button" data-storage="fridge" onclick="selectMilkPumpStorage('fridge')" class="milk-storage-choice-btn py-2 px-2 rounded-xl border border-rose-400 bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-200 text-center transition">
+                <div class="text-xs font-bold leading-tight">Холодильник</div>
+                <div class="text-[10px] opacity-80">до 4 дней</div>
+              </button>
+              <button type="button" data-storage="freezer" onclick="selectMilkPumpStorage('freezer')" class="milk-storage-choice-btn py-2 px-2 rounded-xl border border-stone-200 dark:border-slate-700 bg-warmgray/70 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-center transition">
+                <div class="text-xs font-bold leading-tight">Морозилка</div>
+                <div class="text-[10px] opacity-80">до 6 месяцев</div>
+              </button>
+              <button type="button" data-storage="room" onclick="selectMilkPumpStorage('room')" class="milk-storage-choice-btn py-2 px-2 rounded-xl border border-stone-200 dark:border-slate-700 bg-warmgray/70 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-center transition">
+                <div class="text-xs font-bold leading-tight">На столе</div>
+                <div class="text-[10px] opacity-80">до 4 часов</div>
+              </button>
+              <button type="button" data-storage="none" onclick="selectMilkPumpStorage('none')" class="milk-storage-choice-btn py-2 px-2 rounded-xl border border-stone-200 dark:border-slate-700 bg-warmgray/70 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-center transition">
+                <div class="text-xs font-bold leading-tight">Только в журнал</div>
+                <div class="text-[10px] opacity-80">без запаса</div>
+              </button>
+            </div>
+          </div>
+
+          <!-- Заметка + кнопка сохранения -->
+          <div class="flex flex-col sm:flex-row gap-2 pt-0.5">
+            <input type="text" id="milk-pump-note" maxlength="120" placeholder="Заметка (необязательно, например: пакет №4, утреннее)" class="flex-1 min-w-0 px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-stone-200 dark:border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-rose-400" />
+            <button type="submit" class="px-4 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-xs font-extrabold shadow-2xs flex items-center justify-center gap-2 shrink-0 transition">
+              <span>Сохранить</span>
+              <span id="milk-pump-total-badge" class="px-1.5 py-0.5 rounded-md bg-white/20 text-[11px] tabular-nums">Итого: 0 мл</span>
+            </button>
+          </div>
+        </form>
+
+        <!-- Статистика баланса Л/П за 7 дней -->
+        <div id="milk-bank-week-stats"></div>
+
+        <!-- Фильтры и легенда подсветки сроков -->
+        <div class="space-y-2">
+          <div id="milk-bank-filters" class="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5"></div>
+          <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-500 dark:text-slate-400">
+            <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-emerald-500"></span>Свежее (холод./стол)</span>
+            <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-sky-500"></span>Морозилка (норма)</span>
+            <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-amber-500"></span>Использовать скоро</span>
+            <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-orange-500"></span>Срок подходит</span>
+            <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-rose-500"></span>Срок истёк</span>
+          </div>
+        </div>
+
+        <!-- Список порций -->
+        <div id="milk-bank-list" class="space-y-2.5"></div>
+
+        <p class="text-[10px] text-slate-400 dark:text-slate-500 leading-relaxed text-center pt-1">
+          Ориентиры хранения носят справочный характер (комн. t° до 4 ч, холодильник +2…+4 °C до 4 дн., размороженное в холодильнике до 24 ч, морозилка -18 °C до 6 мес.). Перед кормлением оценивайте запах и вид молока.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== МОДАЛЬНОЕ ОКНО: ПОДРОБНОСТИ НЕДЕЛЬНОГО ДАЙДЖЕСТА ==================== -->
+  <div id="modal-weekly-digest-detail" onclick="if(event.target===this) closeModal('modal-weekly-digest-detail')" class="fixed inset-0 z-[56] hidden items-end sm:items-center justify-center bg-slate-900/45 dark:bg-black/70 backdrop-blur-xs p-0 sm:p-4 overflow-y-auto">
+    <div class="bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl max-w-lg w-full max-h-[90vh] flex flex-col shadow-xl border border-stone-100 dark:border-slate-800 my-auto animate-fade-in overflow-hidden">
+      <div class="p-4 sm:p-5 border-b border-stone-100 dark:border-slate-800 flex items-start justify-between gap-2 shrink-0">
+        <div class="min-w-0">
+          <h3 id="weekly-digest-detail-title" class="font-display font-extrabold text-base sm:text-lg text-slate-900 dark:text-slate-100">Недельный дайджест</h3>
+          <p id="weekly-digest-detail-subtitle" class="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400">Расчёт по вашим записям в журнале</p>
+        </div>
+        <button type="button" onclick="closeModal('modal-weekly-digest-detail')" aria-label="Закрыть" class="p-1.5 rounded-xl hover:bg-stone-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition shrink-0">
+          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div id="weekly-digest-detail-body" class="p-4 sm:p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:pb-5 overflow-y-auto space-y-3.5 flex-1"></div>
+    </div>
+  </div>
+
+  <!-- ==================== МОДАЛЬНОЕ ОКНО: РАСШИФРОВКА НЕДОСЫПА И ДОЛГА СНА ==================== -->
+  <div id="modal-sleep-debt-info" onclick="if(event.target===this) closeModal('modal-sleep-debt-info')" class="fixed inset-0 z-[56] hidden items-end sm:items-center justify-center bg-slate-900/45 dark:bg-black/70 backdrop-blur-xs p-0 sm:p-4 overflow-y-auto">
+    <div class="bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl max-w-lg w-full max-h-[90vh] flex flex-col shadow-xl border border-stone-100 dark:border-slate-800 my-auto animate-fade-in overflow-hidden">
+      <div class="p-4 sm:p-5 border-b border-stone-100 dark:border-slate-800 flex items-start justify-between gap-2 shrink-0">
+        <div class="min-w-0">
+          <h3 class="font-display font-extrabold text-base sm:text-lg text-slate-900 dark:text-slate-100">Баланс сна и недосып</h3>
+          <p id="sleep-debt-info-subtitle" class="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400">Расчёт по записям журнала</p>
+        </div>
+        <button type="button" onclick="closeModal('modal-sleep-debt-info')" aria-label="Закрыть" class="p-1.5 rounded-xl hover:bg-stone-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition shrink-0">
+          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div id="sleep-debt-info-body" class="p-4 sm:p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:pb-5 overflow-y-auto space-y-3.5 flex-1"></div>
     </div>
   </div>
 

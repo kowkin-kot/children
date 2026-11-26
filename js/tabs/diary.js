@@ -38,6 +38,7 @@ export function deleteDiaryEntry(entryId) {
 }
 
 export function renderDiaryTab() {
+  hooks.renderMilkBankSummary();
   hooks.renderSolidsMatrixSummary();
   const list = document.getElementById('diary-entries-list');
   if (!list) return;

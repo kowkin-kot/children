@@ -32,6 +32,7 @@ import {
 import {
   renderHeaderBabyInfo,
   toggleSleepDebtDetails,
+  openSleepDebtInfoModal,
   renderHereAndNowWidget,
   evaluateSmartNotifications,
   handleSmartNotifAction,
@@ -65,6 +66,25 @@ import {
   logSolidsFoodToJournalFromMatrix,
   syncSolidsMatrixFromLog
 } from './tabs/solids-matrix.js';
+import {
+  renderMilkBankSummary,
+  renderMilkBankModal,
+  openMilkBankModal,
+  toggleMilkPumpForm,
+  toggleMilkFeedingEnded,
+  setMilkBankFilter,
+  selectMilkPumpStorage,
+  adjustPumpMl,
+  updatePumpTotalPreview,
+  togglePumpingTimer,
+  updatePumpingTimerClock,
+  savePumpingSession,
+  useMilkBatchForFeeding,
+  markMilkBatchUsed,
+  moveMilkBatchStorage,
+  restoreMilkBatch,
+  deleteMilkBatch
+} from './tabs/milk-bank.js';
 import {
   openNightMode,
   closeNightMode,
@@ -106,6 +126,7 @@ import {
   setRhythmDays,
   updateLiveTimersClock,
   renderRhythmAnalytics,
+  openWeeklyDigestDetail,
   renderJournalTab
 } from './tabs/journal.js';
 import {
@@ -163,6 +184,7 @@ function renderAll() {
   renderHereAndNowWidget();
   evaluateSmartNotifications();
   renderNightMode();
+  renderMilkBankModal();
   switchTab(store.activeTab);
 }
 
@@ -190,7 +212,9 @@ Object.assign(hooks, {
   renderNightMode,
   maybeAutoOpenNightMode,
   renderSolidsMatrixSummary,
-  syncSolidsMatrixFromLog
+  syncSolidsMatrixFromLog,
+  renderMilkBankSummary,
+  renderMilkBankModal
 });
 
 // Регистрируем обработчики для inline-атрибутов HTML
@@ -228,6 +252,7 @@ Object.assign(window, {
   resetJournalDateToToday,
   jumpToLatestJournalDate,
   setRhythmDays,
+  openWeeklyDigestDetail,
   setVaccineFilter,
   openToothModal,
   toggleTempToothSymptom,
@@ -258,6 +283,7 @@ Object.assign(window, {
   handleSmartNotifAction,
   snoozeSmartNotif,
   toggleSleepDebtDetails,
+  openSleepDebtInfoModal,
   openSolidsMatrixModal,
   setSolidsMatrixCategory,
   setSolidsMatrixStatusFilter,
@@ -274,7 +300,21 @@ Object.assign(window, {
   cycleNightDimLevel,
   nightSelectFeedingSubtype,
   nightToggleTimer,
-  nightQuickCare
+  nightQuickCare,
+  openMilkBankModal,
+  toggleMilkPumpForm,
+  toggleMilkFeedingEnded,
+  setMilkBankFilter,
+  selectMilkPumpStorage,
+  adjustPumpMl,
+  updatePumpTotalPreview,
+  togglePumpingTimer,
+  savePumpingSession,
+  useMilkBatchForFeeding,
+  markMilkBatchUsed,
+  moveMilkBatchStorage,
+  restoreMilkBatch,
+  deleteMilkBatch
 });
 
 async function initApp() {
@@ -330,6 +370,7 @@ async function initApp() {
     if (!store.currentAccountLogin) return;
     updateLiveTimersClock();
     updateNightModeClock();
+    updatePumpingTimerClock();
   }, 1000);
 
   setInterval(() => {
@@ -341,6 +382,10 @@ async function initApp() {
     if (store.activeTab === 'journal') {
       renderRhythmAnalytics();
     }
+    if (store.activeTab === 'diary') {
+      renderMilkBankSummary();
+    }
+    renderMilkBankModal();
   }, 30000);
 }
 

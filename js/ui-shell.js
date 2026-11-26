@@ -41,6 +41,113 @@ export function toggleSleepDebtDetails() {
   renderHereAndNowWidget();
 }
 
+export function openSleepDebtInfoModal() {
+  const body = document.getElementById('sleep-debt-info-body');
+  const subtitleEl = document.getElementById('sleep-debt-info-subtitle');
+  if (!body) return;
+
+  const m = computeHereAndNowMetrics();
+  const age = calculateBabyAge(store.appState.babyDob);
+  const hasSleepDebt = m.sleepDebtMin >= 45;
+
+  if (subtitleEl) {
+    subtitleEl.textContent = `Возраст: ${age.humanText} • Ориентир сна: ${m.norms.dailySleepLabel} в сутки`;
+  }
+
+  const summaryBannerCls = hasSleepDebt
+    ? 'bg-amber-50/80 dark:bg-amber-950/35 border-amber-200/80 dark:border-amber-800/60 text-amber-900 dark:text-amber-100'
+    : 'bg-emerald-50/80 dark:bg-emerald-950/35 border-emerald-200/80 dark:border-emerald-800/60 text-emerald-900 dark:text-emerald-100';
+
+  const summaryTitle = hasSleepDebt
+    ? `Накопленный недосып: ${formatMinutesHuman(m.sleepDebtMin)}`
+    : m.activeDaysCount < 2
+      ? 'Пока мало данных для оценки долга сна'
+      : m.sleepDebtMin > 0
+        ? `Небольшой дефицит: ${formatMinutesHuman(m.sleepDebtMin)} (в пределах нормы)`
+        : 'Баланс сна в норме';
+
+  const formulaHtml = m.activeDaysCount >= 2
+    ? `Норма за ${m.activeDaysCount} учт. дн. (${formatMinutesHuman(m.totalTargetSleepMin)}) − фактический сон (${formatMinutesHuman(m.totalActualSleepMin)}) = <strong>${m.sleepDebtMin > 0 ? formatMinutesHuman(m.sleepDebtMin) : '0 мин'}</strong>`
+    : `Сейчас учтён только ${m.activeDaysCount} завершённый день с записями — расчёт включается минимум от 2 завершённых дней.`;
+
+  const daysHtml = [...m.daysBreakdown].reverse().map(d => {
+    const diffMin = d.sleepMin - d.targetMin;
+    const diffStr = diffMin === 0
+      ? '0 мин'
+      : diffMin > 0
+        ? `+${formatMinutesHuman(diffMin)}`
+        : `−${formatMinutesHuman(Math.abs(diffMin))}`;
+
+    let statusText = 'нет записей (не учтён)';
+    let rowCls = 'bg-warmgray/40 dark:bg-slate-800/40 text-slate-400';
+    let diffCls = 'text-slate-400';
+
+    if (d.isToday) {
+      statusText = 'сегодня (ещё идёт, не в долге)';
+      rowCls = 'bg-indigo-50/50 dark:bg-indigo-950/30 border border-indigo-200/50 dark:border-indigo-800/50 text-slate-700 dark:text-slate-200';
+      diffCls = 'text-indigo-500 dark:text-indigo-300';
+    } else if (d.includedInDebt) {
+      statusText = d.sleepMin === 0 ? 'были записи, но без сна' : 'учтён в расчёте';
+      rowCls = 'bg-warmgray/75 dark:bg-slate-800/80 text-slate-800 dark:text-slate-100';
+      diffCls = diffMin >= 0
+        ? 'text-emerald-600 dark:text-emerald-400'
+        : Math.abs(diffMin) >= 45
+          ? 'text-amber-600 dark:text-amber-400'
+          : 'text-slate-500 dark:text-slate-300';
+    }
+
+    return `
+      <div class="flex items-center justify-between gap-2 py-2 px-2.5 rounded-xl ${rowCls} text-xs">
+        <div class="min-w-0">
+          <div class="flex items-center gap-1.5 flex-wrap">
+            <span class="font-bold">${escapeHtml(d.dateLabel)}</span>
+            <span class="text-[10px] opacity-80">${statusText}</span>
+          </div>
+          ${d.dayOverfatigueCount > 0 ? `<div class="text-[10px] text-rose-500 dark:text-rose-400 font-semibold mt-0.5">Перегул: ${d.dayOverfatigueCount} эп.</div>` : ''}
+        </div>
+        <div class="text-right shrink-0 tabular-nums">
+          <div class="font-bold">${d.sleepMin > 0 ? formatMinutesHuman(d.sleepMin) : '0 мин'} <span class="text-[10px] font-normal opacity-70">/ ${formatMinutesHuman(d.targetMin)}</span></div>
+          ${d.includedInDebt ? `<div class="text-[10px] font-bold ${diffCls}">${diffStr}</div>` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  body.innerHTML = `
+    <div class="p-3.5 rounded-2xl border ${summaryBannerCls} space-y-1">
+      <div class="font-display font-extrabold text-sm sm:text-base">${summaryTitle}</div>
+      <div class="text-[11px] opacity-90">
+        Учтено завершённых дней: <strong>${m.activeDaysCount}</strong> из 6 • Эпизодов перегула за неделю: <strong>${m.overfatigueCount}</strong>
+      </div>
+    </div>
+
+    <div class="space-y-1.5">
+      <h4 class="text-xs font-extrabold uppercase tracking-wider text-slate-400">Что это значит</h4>
+      <p class="text-xs sm:text-[13px] text-slate-700 dark:text-slate-200 leading-relaxed">
+        <strong>Долг сна (недосып)</strong> показывает, сколько часов или минут сна малыш недополучил по сравнению с возрастной нормой за последние дни. Плашка предупреждения появляется, если суммарный дефицит достигает <strong>45 минут и больше</strong> — в таком случае помогает уложить ребёнка на ночь на 20–30 минут раньше.
+      </p>
+    </div>
+
+    <div class="space-y-2">
+      <h4 class="text-xs font-extrabold uppercase tracking-wider text-slate-400">Откуда складываются эти данные</h4>
+      <div class="p-3 rounded-2xl bg-warmgray/60 dark:bg-slate-800/60 border border-stone-200/70 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300 space-y-1.5 leading-relaxed">
+        <div>• Берётся окно из <strong>6 последних завершённых дней</strong> (сегодняшний день не учитывается, пока не закончился).</div>
+        <div>• В расчёт попадает каждый завершённый день, в котором была хотя бы одна запись в «Журнале» (сон, кормление, подгузник и т.д.).</div>
+        <div>• Суточная норма для расчёта (${formatMinutesHuman(m.norms.dailySleepTargetMin)} из ориентира ${escapeHtml(m.norms.dailySleepLabel)}) сравнивается с суммой всех снов за эти сутки.</div>
+        <div>• <strong>Эпизод перегула</strong> фиксируется, когда перерыв между двумя снами в один день превышает возрастное окно бодрствования (${formatMinutesHuman(m.norms.wakeWindowMin)}) больше чем на 25 минут (от ${formatMinutesHuman(m.norms.wakeWindowMin + 26)} до 10 ч).</div>
+        <div class="pt-1 font-semibold text-slate-800 dark:text-slate-100">${formulaHtml}</div>
+      </div>
+
+      <div class="space-y-1.5">
+        <div class="text-[11px] font-bold text-slate-500 dark:text-slate-400">Разбивка по дням (последние 7 суток):</div>
+        ${daysHtml}
+      </div>
+    </div>
+  `;
+
+  openModal('modal-sleep-debt-info');
+}
+
 export function renderHereAndNowWidget() {
   const container = document.getElementById('here-and-now-widget');
   if (!container || !store.currentAccountLogin) return;
@@ -94,10 +201,11 @@ export function renderHereAndNowWidget() {
     }
   }
 
+  const infoDotSvg = `<svg class="w-3 h-3 opacity-75 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>`;
   const hasSleepDebt = m.sleepDebtMin >= 45;
   const debtBadgeHtml = hasSleepDebt
-    ? `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 text-[11px] font-bold">Долг сна: −${formatMinutesHuman(m.sleepDebtMin)} за ${m.activeDaysCount} дн.</span>`
-    : `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 text-[11px] font-bold">Баланс сна в норме</span>`;
+    ? `<button type="button" onclick="openSleepDebtInfoModal()" class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/60 hover:bg-amber-100 dark:hover:bg-amber-900/60 text-amber-700 dark:text-amber-300 text-[11px] font-bold transition cursor-pointer"><span>Долг сна: −${formatMinutesHuman(m.sleepDebtMin)} за ${m.activeDaysCount} дн.</span>${infoDotSvg}</button>`
+    : `<button type="button" onclick="openSleepDebtInfoModal()" class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 text-[11px] font-bold transition cursor-pointer"><span>Баланс сна в норме</span>${infoDotSvg}</button>`;
 
   let noticesHtml = '';
   if (m.shortNapAdjusted && !m.sleepActive) {
@@ -110,10 +218,13 @@ export function renderHereAndNowWidget() {
   }
   if (hasSleepDebt) {
     noticesHtml += `
-      <div class="flex items-start gap-2 p-2.5 rounded-2xl bg-amber-50/90 dark:bg-amber-950/40 border border-amber-200/70 dark:border-amber-800/50 text-[11px] text-amber-900 dark:text-amber-200">
-        <svg class="w-4 h-4 text-amber-500 shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
-        <span>За последние ${m.activeDaysCount} дн. накопился недосып <strong>${formatMinutesHuman(m.sleepDebtMin)}</strong>${m.overfatigueCount > 0 ? ` (эпизодов перегула: ${m.overfatigueCount})` : ''}. Попробуйте сдвинуть ночное укладывание на <strong>30 минут раньше</strong>, чтобы восстановить баланс.</span>
-      </div>
+      <button type="button" onclick="openSleepDebtInfoModal()" class="w-full text-left flex items-start justify-between gap-2 p-2.5 rounded-2xl bg-amber-50/90 dark:bg-amber-950/40 hover:bg-amber-100/80 dark:hover:bg-amber-950/60 border border-amber-200/70 dark:border-amber-800/50 text-[11px] text-amber-900 dark:text-amber-200 active:scale-[0.99] transition cursor-pointer">
+        <div class="flex items-start gap-2 min-w-0">
+          <svg class="w-4 h-4 text-amber-500 shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+          <span>За последние ${m.activeDaysCount} дн. накопился недосып <strong>${formatMinutesHuman(m.sleepDebtMin)}</strong>${m.overfatigueCount > 0 ? ` (эпизодов перегула: ${m.overfatigueCount})` : ''}. Попробуйте сдвинуть ночное укладывание на <strong>30 минут раньше</strong>, чтобы восстановить баланс.</span>
+        </div>
+        <svg class="w-3.5 h-3.5 text-amber-600/80 dark:text-amber-300/80 shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+      </button>
     `;
   }
 
