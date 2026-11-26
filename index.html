@@ -1345,6 +1345,22 @@
     </div>
   </div>
 
+  <!-- ==================== МОДАЛЬНОЕ ОКНО: ПОДРОБНОСТИ СВОДКИ ДНЯ (СОН / БОДРСТВОВАНИЕ / КОРМЛЕНИЯ / ПОДГУЗНИКИ) ==================== -->
+  <div id="modal-journal-metric-detail" onclick="if(event.target===this) closeModal('modal-journal-metric-detail')" class="fixed inset-0 z-[56] hidden items-end sm:items-center justify-center bg-slate-900/45 dark:bg-black/70 backdrop-blur-xs p-0 sm:p-4 overflow-y-auto">
+    <div class="bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl max-w-lg w-full max-h-[90vh] flex flex-col shadow-xl border border-stone-100 dark:border-slate-800 my-auto animate-fade-in overflow-hidden">
+      <div class="p-4 sm:p-5 border-b border-stone-100 dark:border-slate-800 flex items-start justify-between gap-2 shrink-0">
+        <div class="min-w-0">
+          <h3 id="journal-metric-detail-title" class="font-display font-extrabold text-base sm:text-lg text-slate-900 dark:text-slate-100">Показатель дня</h3>
+          <p id="journal-metric-detail-subtitle" class="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400">Из чего складывается расчёт</p>
+        </div>
+        <button type="button" onclick="closeModal('modal-journal-metric-detail')" aria-label="Закрыть" class="p-1.5 rounded-xl hover:bg-stone-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition shrink-0">
+          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div id="journal-metric-detail-body" class="p-4 sm:p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:pb-5 overflow-y-auto space-y-3.5 flex-1"></div>
+    </div>
+  </div>
+
   <!-- ==================== НОЧНОЙ РЕЖИМ «ДЛЯ ОДНОЙ РУКИ» ==================== -->
   <div id="night-mode-overlay" class="fixed inset-0 z-[65] hidden flex-col bg-[#080403] text-[#d6a374] overflow-y-auto select-none"></div>
 

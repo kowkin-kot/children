@@ -127,7 +127,9 @@ import {
   setRhythmDays,
   updateLiveTimersClock,
   renderRhythmAnalytics,
+  renderJournalDayStats,
   openWeeklyDigestDetail,
+  openJournalMetricDetail,
   renderJournalTab
 } from './tabs/journal.js';
 import {
@@ -254,6 +256,7 @@ Object.assign(window, {
   jumpToLatestJournalDate,
   setRhythmDays,
   openWeeklyDigestDetail,
+  openJournalMetricDetail,
   setVaccineFilter,
   openToothModal,
   toggleTempToothSymptom,
@@ -386,6 +389,7 @@ async function initApp() {
     renderNightMode();
     if (store.activeTab === 'journal') {
       renderRhythmAnalytics();
+      renderJournalDayStats();
     }
     if (store.activeTab === 'diary') {
       renderMilkBankSummary();
