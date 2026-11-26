@@ -1,12 +1,13 @@
 // Вкладка 4: Рост и вес (график норм ВОЗ от 0 до 5 лет и история замеров)
 
 import { WHO_STANDARDS } from '../data.js';
-import { store } from '../state.js';
-import { escapeHtml, getTodayIso, formatDateRu, showToast } from '../utils.js';
+import { store, markDeletedId } from '../state.js';
+import { escapeHtml, generateEntityId, getTodayIso, formatDateRu, showToast } from '../utils.js';
 import { saveAppState } from '../firebase.js';
 
 export function setGrowthMetric(metric) {
   store.appState.growthMetric = metric === 'height' ? 'height' : 'weight';
+  store.appState.uiUpdatedAt = Date.now();
   saveAppState();
   renderGrowthTab();
 }
@@ -25,10 +26,11 @@ export function addGrowthRecord(e) {
   }
 
   store.appState.growthRecords.push({
-    id: 'gr_' + Date.now(),
+    id: generateEntityId('gr'),
     date,
     weight,
-    height
+    height,
+    updatedAt: Date.now()
   });
   store.appState.growthRecords.sort((a, b) => a.date.localeCompare(b.date));
 
@@ -43,6 +45,7 @@ export function addGrowthRecord(e) {
 }
 
 export function deleteGrowthRecord(recId) {
+  markDeletedId('growth', recId, Date.now());
   store.appState.growthRecords = (store.appState.growthRecords || []).filter(r => r.id !== recId);
   saveAppState();
   renderGrowthTab();

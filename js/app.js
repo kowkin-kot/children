@@ -23,6 +23,7 @@ import {
 import {
   flushPendingSync,
   syncSavedSessionFromCloud,
+  refreshAccountFromCloud,
   switchAuthMode,
   selectAuthInviteRole,
   handleAuthSubmit,
@@ -340,6 +341,8 @@ async function initApp() {
     store.currentAccountLogin = savedLogin;
     store.currentAccountPassHash = localAccounts[savedLogin].passHash || '';
     store.currentAccountCreatedAt = localAccounts[savedLogin].createdAt || localAccounts[savedLogin].state?.accountCreatedAt || null;
+    store.pendingSyncState = Boolean(localAccounts[savedLogin].pendingSync);
+    store.initialCloudSyncDone = false;
     store.appState = mergeStateWithDefaults(localAccounts[savedLogin].state);
     enterMainApp();
     syncSavedSessionFromCloud(savedLogin);
@@ -358,9 +361,11 @@ async function initApp() {
 
   const refreshAndSyncNotifications = () => {
     if (!store.currentAccountLogin) return;
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
     renderHereAndNowWidget();
     evaluateSmartNotifications();
     renderNightMode();
+    refreshAccountFromCloud();
   };
 
   document.addEventListener('visibilitychange', refreshAndSyncNotifications);

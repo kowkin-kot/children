@@ -9,6 +9,10 @@ export function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
+export function generateEntityId(prefix = 'id') {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+}
+
 export function getTodayIso() {
   const d = new Date();
   const y = d.getFullYear();

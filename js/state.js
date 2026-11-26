@@ -10,15 +10,18 @@ export function createDefaultState(babyName = '', babyDob = '') {
     babyGender: 'girl',
     themeMode: 'auto',
     autoNightAfter23: false,
+    profileUpdatedAt: 0,
+    uiUpdatedAt: 0,
     selectedWeek: 1,
     weekRangeStart: 1,
     weekRangeEnd: 16,
     completedMilestones: {},
+    milestoneUpdatedAt: {},
     timers: {
-      feeding: { active: false, startTime: null, subtype: 'left' },
-      sleep: { active: false, startTime: null, sleepType: 'day' },
-      walk: { active: false, startTime: null },
-      pumping: { active: false, startTime: null }
+      feeding: { active: false, startTime: null, subtype: 'left', updatedAt: 0 },
+      sleep: { active: false, startTime: null, sleepType: 'day', updatedAt: 0 },
+      walk: { active: false, startTime: null, updatedAt: 0 },
+      pumping: { active: false, startTime: null, updatedAt: 0 }
     },
     journalLogs: [],
     milkBank: [],
@@ -33,6 +36,12 @@ export function createDefaultState(babyName = '', babyDob = '') {
     growthMetric: 'weight',
     growthRecords: [],
     diaryEntries: [],
+    deletedIds: {
+      journal: {},
+      diary: {},
+      growth: {},
+      milkBank: {}
+    },
     notifications: {
       feeding: true,
       sleep: true,
@@ -133,7 +142,8 @@ function normalizeLegacyTrackerLog(item) {
     title,
     startTime: startMs,
     endTime: endMs,
-    durationMin
+    durationMin,
+    updatedAt: Number(item.updatedAt) || endMs || startMs || 0
   };
   if (subtype) normalized.subtype = subtype;
   if (sleepType) normalized.sleepType = sleepType;
@@ -219,10 +229,31 @@ export function mergeStateWithDefaults(rawState) {
         date: entry.date || getTodayIso(),
         tag: entry.tag || 'Достижение',
         title: entry.title || '',
-        text: entry.text || ''
+        text: entry.text || '',
+        author: typeof entry.author === 'string' && entry.author.trim() ? entry.author.trim().slice(0, 40) : '',
+        updatedAt: Number(entry.updatedAt) || 0
       });
     }
   }
+
+  const pruneTombstones = (rawMap) => {
+    const out = {};
+    if (!rawMap || typeof rawMap !== 'object') return out;
+    const cutoff = Date.now() - 30 * 86400000;
+    for (const [k, v] of Object.entries(rawMap)) {
+      const ts = Number(v);
+      if (k && Number.isFinite(ts) && ts >= cutoff) {
+        out[k] = ts;
+      }
+    }
+    return out;
+  };
+
+  const normTimer = (def, rawT) => {
+    const merged = { ...def, ...(rawT || {}) };
+    merged.updatedAt = Number(rawT?.updatedAt) || (merged.active ? Number(merged.startTime) || 0 : 0);
+    return merged;
+  };
 
   return {
     ...base,
@@ -231,11 +262,13 @@ export function mergeStateWithDefaults(rawState) {
     babyDob: resolvedBabyDob,
     babyGender: resolvedGender,
     autoNightAfter23: Boolean(rawState.autoNightAfter23),
+    profileUpdatedAt: Number(rawState.profileUpdatedAt) || 0,
+    uiUpdatedAt: Number(rawState.uiUpdatedAt) || 0,
     timers: {
-      feeding: { ...base.timers.feeding, ...(rawState.timers?.feeding || {}) },
-      sleep: { ...base.timers.sleep, ...(rawState.timers?.sleep || {}) },
-      walk: { ...base.timers.walk, ...(rawState.timers?.walk || {}) },
-      pumping: { ...base.timers.pumping, ...(rawState.timers?.pumping || {}) }
+      feeding: normTimer(base.timers.feeding, rawState.timers?.feeding),
+      sleep: normTimer(base.timers.sleep, rawState.timers?.sleep),
+      walk: normTimer(base.timers.walk, rawState.timers?.walk),
+      pumping: normTimer(base.timers.pumping, rawState.timers?.pumping)
     },
     notifications: {
       ...base.notifications,
@@ -247,6 +280,9 @@ export function mergeStateWithDefaults(rawState) {
       ...(rawState.checklistDone || {}),
       ...(rawState.completedMilestones || {})
     },
+    milestoneUpdatedAt: rawState.milestoneUpdatedAt && typeof rawState.milestoneUpdatedAt === 'object'
+      ? { ...rawState.milestoneUpdatedAt }
+      : {},
     journalLogs: mergedJournalLogs,
     milkBank: Array.isArray(rawState.milkBank)
       ? rawState.milkBank
@@ -294,7 +330,13 @@ export function mergeStateWithDefaults(rawState) {
       ...normalizeVaccinesCollection(rawState.vaccinesMap)
     },
     growthRecords: Array.isArray(rawState.growthRecords) ? rawState.growthRecords : [],
-    diaryEntries: Array.from(combinedDiaryMap.values())
+    diaryEntries: Array.from(combinedDiaryMap.values()),
+    deletedIds: {
+      journal: pruneTombstones(rawState.deletedIds?.journal),
+      diary: pruneTombstones(rawState.deletedIds?.diary),
+      growth: pruneTombstones(rawState.deletedIds?.growth),
+      milkBank: pruneTombstones(rawState.deletedIds?.milkBank)
+    }
   };
 }
 
@@ -342,18 +384,36 @@ export function mergeAccountStates(statesList) {
   let explicitBabyName = '';
   let explicitBabyDob = '';
   let explicitGender = '';
+  let bestProfileTs = -1;
+  let profileWinner = latestNorm;
+  let bestUiTs = -1;
+  let uiWinner = latestNorm;
 
   const journalMap = new Map();
   const milkBankMap = new Map();
   const diaryMap = new Map();
   const growthMap = new Map();
   const milestones = {};
+  const milestoneUpdatedAt = {};
   const teethMap = {};
   const vaccinesMap = {};
   const solidsMatrix = {};
   const customSolidsMap = new Map();
   const familyMembersSet = new Set();
   const notifHistoryMap = new Map();
+  const mergedSnoozedUntil = {};
+  const mergedDeletedIds = {
+    journal: {},
+    diary: {},
+    growth: {},
+    milkBank: {}
+  };
+  const mergedTimers = {
+    feeding: { ...(normalizedList[0].norm.timers?.feeding || {}) },
+    sleep: { ...(normalizedList[0].norm.timers?.sleep || {}) },
+    walk: { ...(normalizedList[0].norm.timers?.walk || {}) },
+    pumping: { ...(normalizedList[0].norm.timers?.pumping || {}) }
+  };
 
   for (const { raw, norm } of normalizedList) {
     const rawProfile = raw.profile && typeof raw.profile === 'object' ? raw.profile : {};
@@ -370,9 +430,45 @@ export function mergeAccountStates(statesList) {
       explicitGender = candidateGender;
     }
 
+    const pTs = Number(norm.profileUpdatedAt) || 0;
+    if (pTs >= bestProfileTs) {
+      bestProfileTs = pTs;
+      profileWinner = norm;
+    }
+    const uTs = Number(norm.uiUpdatedAt) || 0;
+    if (uTs >= bestUiTs) {
+      bestUiTs = uTs;
+      uiWinner = norm;
+    }
+
+    for (const cat of ['journal', 'diary', 'growth', 'milkBank']) {
+      for (const [delId, delTs] of Object.entries(norm.deletedIds?.[cat] || {})) {
+        const tsNum = Number(delTs) || 0;
+        if (tsNum > (mergedDeletedIds[cat][delId] || 0)) {
+          mergedDeletedIds[cat][delId] = tsNum;
+        }
+      }
+    }
+
+    for (const tKey of ['feeding', 'sleep', 'walk', 'pumping']) {
+      const curT = norm.timers?.[tKey];
+      if (!curT) continue;
+      const prevT = mergedTimers[tKey] || {};
+      const prevTs = Number(prevT.updatedAt) || (prevT.active ? Number(prevT.startTime) || 0 : 0);
+      const curTs = Number(curT.updatedAt) || (curT.active ? Number(curT.startTime) || 0 : 0);
+      if (curTs >= prevTs) {
+        mergedTimers[tKey] = { ...curT, updatedAt: curTs };
+      }
+    }
+
     for (const item of norm.journalLogs || []) {
       const key = item.id || `${item.type}_${item.startTime}_${item.endTime || 0}`;
-      journalMap.set(key, item);
+      const itemTs = Number(item.updatedAt) || Number(item.endTime) || Number(item.startTime) || 0;
+      const prev = journalMap.get(key);
+      const prevTs = prev ? (Number(prev.updatedAt) || Number(prev.endTime) || Number(prev.startTime) || 0) : -1;
+      if (!prev || itemTs >= prevTs) {
+        journalMap.set(key, item);
+      }
     }
     for (const batch of norm.milkBank || []) {
       if (!batch || !batch.id) continue;
@@ -383,29 +479,75 @@ export function mergeAccountStates(statesList) {
     }
     for (const entry of norm.diaryEntries || []) {
       const key = entry.id || `${entry.date}_${entry.title}`;
-      diaryMap.set(key, entry);
+      const prev = diaryMap.get(key);
+      if (!prev || (Number(entry.updatedAt) || 0) >= (Number(prev.updatedAt) || 0)) {
+        diaryMap.set(key, entry);
+      }
     }
     for (const g of norm.growthRecords || []) {
       if (!g || typeof g !== 'object') continue;
       const key = g.id || `${g.date || ''}_${g.weight || ''}_${g.height || ''}_${g.head || ''}`;
-      growthMap.set(key, g);
+      const prev = growthMap.get(key);
+      if (!prev || (Number(g.updatedAt) || 0) >= (Number(prev.updatedAt) || 0)) {
+        growthMap.set(key, g);
+      }
     }
-    for (const [k, val] of Object.entries(norm.completedMilestones || {})) {
-      if (val) milestones[k] = true;
+    const allMilestoneKeys = new Set([
+      ...Object.keys(norm.completedMilestones || {}),
+      ...Object.keys(norm.milestoneUpdatedAt || {})
+    ]);
+    for (const k of allMilestoneKeys) {
+      const curMts = Number(norm.milestoneUpdatedAt?.[k]) || 0;
+      const prevMts = Number(milestoneUpdatedAt[k]) || 0;
+      const val = Boolean(norm.completedMilestones?.[k]);
+      if (curMts > prevMts) {
+        milestoneUpdatedAt[k] = curMts;
+        if (val) milestones[k] = true;
+        else delete milestones[k];
+      } else if (curMts === 0 && prevMts === 0 && val) {
+        milestones[k] = true;
+      }
     }
     for (const [k, val] of Object.entries(norm.teethMap || {})) {
       if (val && typeof val === 'object') {
-        teethMap[k] = { ...(teethMap[k] || {}), ...val };
+        const prev = teethMap[k];
+        const curTs = Number(val.updatedAt) || 0;
+        const prevTs = Number(prev?.updatedAt) || 0;
+        if (!prev) {
+          teethMap[k] = { ...val };
+        } else if (curTs > 0 || prevTs > 0) {
+          if (curTs >= prevTs) teethMap[k] = { ...val };
+        } else {
+          teethMap[k] = { ...prev, ...val };
+        }
       }
     }
     for (const [k, val] of Object.entries(norm.vaccinesMap || {})) {
       if (val && typeof val === 'object') {
-        vaccinesMap[k] = { ...(vaccinesMap[k] || {}), ...val };
+        const prev = vaccinesMap[k];
+        const curTs = Number(val.updatedAt) || 0;
+        const prevTs = Number(prev?.updatedAt) || 0;
+        if (!prev) {
+          vaccinesMap[k] = { ...val };
+        } else if (curTs > 0 || prevTs > 0) {
+          if (curTs >= prevTs) vaccinesMap[k] = { ...val };
+        } else {
+          vaccinesMap[k] = { ...prev, ...val };
+        }
       }
     }
     for (const [k, val] of Object.entries(norm.solidsMatrix || {})) {
       if (val && typeof val === 'object') {
-        solidsMatrix[k] = { ...(solidsMatrix[k] || {}), ...val };
+        const prev = solidsMatrix[k];
+        const curTs = Number(val.updatedAt) || 0;
+        const prevTs = Number(prev?.updatedAt) || 0;
+        if (!prev) {
+          solidsMatrix[k] = { ...val };
+        } else if (curTs > 0 || prevTs > 0) {
+          if (curTs >= prevTs) solidsMatrix[k] = { ...val };
+        } else {
+          solidsMatrix[k] = { ...prev, ...val };
+        }
       }
     }
     for (const cf of norm.customSolidsFoods || []) {
@@ -416,6 +558,12 @@ export function mergeAccountStates(statesList) {
     for (const fm of norm.familyMembers || []) {
       if (typeof fm === 'string' && fm.trim()) familyMembersSet.add(fm.trim());
     }
+    for (const [sk, sv] of Object.entries(norm.notifications?.snoozedUntil || {})) {
+      const ts = Number(sv) || 0;
+      if (ts > (mergedSnoozedUntil[sk] || 0)) {
+        mergedSnoozedUntil[sk] = ts;
+      }
+    }
     for (const h of norm.notifications?.history || []) {
       if (!h || typeof h !== 'object') continue;
       const key = `${h.ts || 0}_${h.title || ''}_${h.type || ''}`;
@@ -423,16 +571,95 @@ export function mergeAccountStates(statesList) {
     }
   }
 
+  // Фильтруем записи, удалённые на одном из устройств позже их последнего обновления
+  const finalJournalLogs = Array.from(journalMap.values())
+    .filter(item => {
+      const key = item.id || `${item.type}_${item.startTime}_${item.endTime || 0}`;
+      const delTs = mergedDeletedIds.journal[key] || 0;
+      const itemTs = Number(item.updatedAt) || Number(item.endTime) || Number(item.startTime) || 0;
+      return delTs <= itemTs;
+    })
+    .sort((a, b) => (b.startTime || 0) - (a.startTime || 0));
+
+  const finalMilkBank = Array.from(milkBankMap.values())
+    .filter(batch => {
+      const delTs = mergedDeletedIds.milkBank[batch.id] || 0;
+      const itemTs = Number(batch.updatedAt) || Number(batch.pumpedAt) || 0;
+      return delTs <= itemTs;
+    })
+    .sort((a, b) => (b.pumpedAt || 0) - (a.pumpedAt || 0));
+
+  const finalDiaryEntries = Array.from(diaryMap.values())
+    .filter(entry => {
+      const key = entry.id || `${entry.date}_${entry.title}`;
+      const delTs = mergedDeletedIds.diary[key] || 0;
+      const itemTs = Number(entry.updatedAt) || 0;
+      return delTs <= itemTs;
+    });
+
+  const finalGrowthRecords = Array.from(growthMap.values())
+    .filter(g => {
+      const key = g.id || `${g.date || ''}_${g.weight || ''}_${g.height || ''}_${g.head || ''}`;
+      const delTs = mergedDeletedIds.growth[key] || 0;
+      const itemTs = Number(g.updatedAt) || 0;
+      return delTs <= itemTs;
+    });
+
+  // Если таймер активен на одном из устройств, но другой родитель уже сохранил завершённое событие с тем же временем начала (или более поздний сон) — закрываем устаревший таймер
+  const timerLogMatchers = {
+    sleep: l => l.type === 'sleep',
+    feeding: l => l.type === 'feeding' || l.type === 'feeding_solids',
+    walk: l => l.type === 'walk',
+    pumping: l => l.type === 'pumping'
+  };
+  for (const [tKey, typeCheck] of Object.entries(timerLogMatchers)) {
+    const tObj = mergedTimers[tKey];
+    if (!tObj?.active || !tObj.startTime) continue;
+    const tStart = Number(tObj.startTime);
+    const tUpd = Number(tObj.updatedAt) || tStart;
+    const matchingClosed = finalJournalLogs.find(l => {
+      if (!typeCheck(l)) return false;
+      const lStart = Number(l.startTime) || 0;
+      const lEnd = Number(l.endTime) || lStart;
+      const lUpd = Number(l.updatedAt) || lEnd || lStart;
+      const isSameSession = Math.abs(lStart - tStart) <= 180000 && lUpd >= tUpd;
+      const isNewerCompletedSleep = tKey === 'sleep' && lStart >= tStart && lEnd > lStart && lUpd > tUpd;
+      return isSameSession || isNewerCompletedSleep;
+    });
+    if (matchingClosed) {
+      mergedTimers[tKey] = {
+        ...tObj,
+        active: false,
+        startTime: null,
+        updatedAt: Math.max(tUpd, Number(matchingClosed.updatedAt) || Number(matchingClosed.endTime) || Date.now())
+      };
+    }
+  }
+
   const combined = {
     ...latestNorm,
-    babyName: explicitBabyName || latestNorm.babyName || 'Малыш',
-    babyDob: explicitBabyDob || latestNorm.babyDob || getTodayIso(),
-    babyGender: explicitGender || latestNorm.babyGender || 'girl',
-    journalLogs: Array.from(journalMap.values()).sort((a, b) => (b.startTime || 0) - (a.startTime || 0)),
-    milkBank: Array.from(milkBankMap.values()).sort((a, b) => (b.pumpedAt || 0) - (a.pumpedAt || 0)),
-    diaryEntries: Array.from(diaryMap.values()),
-    growthRecords: Array.from(growthMap.values()),
+    babyName: (bestProfileTs > 0 ? profileWinner.babyName : '') || explicitBabyName || latestNorm.babyName || 'Малыш',
+    babyDob: (bestProfileTs > 0 ? profileWinner.babyDob : '') || explicitBabyDob || latestNorm.babyDob || getTodayIso(),
+    babyGender: (bestProfileTs > 0 ? profileWinner.babyGender : '') || explicitGender || latestNorm.babyGender || 'girl',
+    autoNightAfter23: bestProfileTs > 0 ? Boolean(profileWinner.autoNightAfter23) : Boolean(latestNorm.autoNightAfter23),
+    milkFeedingEnded: bestProfileTs > 0 ? Boolean(profileWinner.milkFeedingEnded) : Boolean(latestNorm.milkFeedingEnded),
+    profileUpdatedAt: Math.max(0, bestProfileTs),
+    themeMode: uiWinner.themeMode || latestNorm.themeMode || 'auto',
+    selectedWeek: uiWinner.selectedWeek || latestNorm.selectedWeek || 1,
+    weekRangeStart: uiWinner.weekRangeStart || latestNorm.weekRangeStart || 1,
+    weekRangeEnd: uiWinner.weekRangeEnd || latestNorm.weekRangeEnd || 16,
+    rhythmDays: uiWinner.rhythmDays || latestNorm.rhythmDays || 7,
+    vaccineFilter: uiWinner.vaccineFilter || latestNorm.vaccineFilter || 'all',
+    growthMetric: uiWinner.growthMetric || latestNorm.growthMetric || 'weight',
+    uiUpdatedAt: Math.max(0, bestUiTs),
+    timers: mergedTimers,
+    journalLogs: finalJournalLogs,
+    milkBank: finalMilkBank,
+    diaryEntries: finalDiaryEntries,
+    growthRecords: finalGrowthRecords,
+    deletedIds: mergedDeletedIds,
     completedMilestones: milestones,
+    milestoneUpdatedAt,
     solidsMatrix,
     customSolidsFoods: Array.from(customSolidsMap.values()),
     familyMembers: Array.from(familyMembersSet),
@@ -440,7 +667,8 @@ export function mergeAccountStates(statesList) {
     vaccinesMap,
     notifications: {
       ...(latestNorm.notifications || {}),
-      history: Array.from(notifHistoryMap.values()).sort((a, b) => (b.ts || 0) - (a.ts || 0))
+      snoozedUntil: mergedSnoozedUntil,
+      history: Array.from(notifHistoryMap.values()).sort((a, b) => (b.ts || 0) - (a.ts || 0)).slice(0, 30)
     }
   };
 
@@ -470,6 +698,7 @@ export const store = {
   authMode: 'register',
   isRemoteSyncApplying: false,
   pendingSyncState: false,
+  initialCloudSyncDone: true,
   tempGenderSelection: 'girl',
   tempToothSymptoms: [],
   activeTab: 'development',
@@ -506,6 +735,20 @@ export function readLocalAccounts() {
   }
 }
 
+export function markDeletedId(category, id, ts = Date.now()) {
+  if (!id || !store.appState) return;
+  if (!store.appState.deletedIds || typeof store.appState.deletedIds !== 'object') {
+    store.appState.deletedIds = { journal: {}, diary: {}, growth: {}, milkBank: {} };
+  }
+  if (!store.appState.deletedIds[category] || typeof store.appState.deletedIds[category] !== 'object') {
+    store.appState.deletedIds[category] = {};
+  }
+  store.appState.deletedIds[category][id] = Math.max(
+    Number(store.appState.deletedIds[category][id]) || 0,
+    Number(ts) || Date.now()
+  );
+}
+
 export function writeLocalAccount(login, passHash, stateObj, extraMeta = {}) {
   try {
     const all = readLocalAccounts();
@@ -515,7 +758,8 @@ export function writeLocalAccount(login, passHash, stateObj, extraMeta = {}) {
       login,
       passHash: passHash || prev.passHash || '',
       state: stateObj,
-      updatedAt: extraMeta.updatedAt || Date.now()
+      updatedAt: extraMeta.updatedAt || Date.now(),
+      pendingSync: typeof extraMeta.pendingSync === 'boolean' ? extraMeta.pendingSync : Boolean(prev.pendingSync)
     };
     if (createdAt) {
       record.createdAt = createdAt;

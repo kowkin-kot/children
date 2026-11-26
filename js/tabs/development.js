@@ -12,6 +12,7 @@ export function filterWeekRange(start, end) {
   if (store.appState.selectedWeek < start || store.appState.selectedWeek > end) {
     store.appState.selectedWeek = start;
   }
+  store.appState.uiUpdatedAt = Date.now();
   saveAppState();
   renderDevelopmentTab();
 }
@@ -34,6 +35,7 @@ export function selectWeek(weekNum) {
   else if (w <= 104) { store.appState.weekRangeStart = 53; store.appState.weekRangeEnd = 104; }
   else if (w <= 156) { store.appState.weekRangeStart = 105; store.appState.weekRangeEnd = 156; }
   else { store.appState.weekRangeStart = 157; store.appState.weekRangeEnd = 260; }
+  store.appState.uiUpdatedAt = Date.now();
   saveAppState();
   renderDevelopmentTab();
 }
@@ -41,6 +43,10 @@ export function selectWeek(weekNum) {
 export function toggleMilestone(weekNum, idx) {
   const key = `${weekNum}_${idx}`;
   store.appState.completedMilestones[key] = !store.appState.completedMilestones[key];
+  if (!store.appState.milestoneUpdatedAt || typeof store.appState.milestoneUpdatedAt !== 'object') {
+    store.appState.milestoneUpdatedAt = {};
+  }
+  store.appState.milestoneUpdatedAt[key] = Date.now();
   saveAppState();
   renderDevelopmentTab();
 }

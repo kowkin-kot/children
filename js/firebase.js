@@ -42,7 +42,12 @@ let auth = null;
 let db = null;
 let firebaseUser = null;
 let unsubAccountSnapshot = null;
+let subscribedLogin = null;
 let activeInitPromise = null;
+let localMutationSeq = 0;
+let activeSavePromise = null;
+let queuedSaveNeeded = false;
+let lastCloudRefreshAt = 0;
 
 // Динамическая загрузка официального Firebase Modular SDK из CDN (работает и на GitHub Pages без сборщика, и в Vite, и не блокирует офлайн-запуск)
 async function loadFirebaseSdk() {
@@ -161,9 +166,35 @@ async function verifyPasswordHash(storedHash, rawPassword, shaHash) {
   return false;
 }
 
+function hasLocalAdditionsOverCloud(mergedState, cloudState) {
+  if (!cloudState || typeof cloudState !== 'object') return true;
+  if (getStateRecordCount(mergedState) > getStateRecordCount(cloudState)) return true;
+
+  const cloudNorm = mergeStateWithDefaults(cloudState);
+  for (const tKey of ['feeding', 'sleep', 'walk', 'pumping']) {
+    const mT = mergedState.timers?.[tKey];
+    const cT = cloudNorm.timers?.[tKey];
+    const mTs = Number(mT?.updatedAt) || (mT?.active ? Number(mT.startTime) || 0 : 0);
+    const cTs = Number(cT?.updatedAt) || (cT?.active ? Number(cT.startTime) || 0 : 0);
+    if (mTs > cTs) return true;
+  }
+
+  for (const cat of ['journal', 'diary', 'growth', 'milkBank']) {
+    const mDel = mergedState.deletedIds?.[cat] || {};
+    const cDel = cloudNorm.deletedIds?.[cat] || {};
+    for (const [id, ts] of Object.entries(mDel)) {
+      if ((Number(ts) || 0) > (Number(cDel[id]) || 0)) return true;
+    }
+  }
+  return false;
+}
+
 export async function saveAppState() {
   if (!store.currentAccountLogin) return;
-  const localExisting = readLocalAccounts()[store.currentAccountLogin];
+  const targetLogin = store.currentAccountLogin;
+  localMutationSeq += 1;
+
+  const localExisting = readLocalAccounts()[targetLogin];
   const resolvedCreatedAt = store.currentAccountCreatedAt
     || localExisting?.createdAt
     || store.appState?.accountCreatedAt
@@ -172,51 +203,150 @@ export async function saveAppState() {
     store.currentAccountCreatedAt = resolvedCreatedAt;
   }
 
-  writeLocalAccount(store.currentAccountLogin, store.currentAccountPassHash, store.appState, {
-    createdAt: resolvedCreatedAt || undefined
+  store.pendingSyncState = true;
+  writeLocalAccount(targetLogin, store.currentAccountPassHash, store.appState, {
+    createdAt: resolvedCreatedAt || undefined,
+    pendingSync: true
   });
-  store.inMemoryAccountsCache.set(store.currentAccountLogin, {
-    login: store.currentAccountLogin,
+  store.inMemoryAccountsCache.set(targetLogin, {
+    login: targetLogin,
     passHash: store.currentAccountPassHash,
     state: store.appState,
     createdAt: resolvedCreatedAt || Date.now(),
-    updatedAt: Date.now()
+    updatedAt: Date.now(),
+    pendingSync: true
   });
+  hooks.updateNetworkStatusUI();
 
   if (!navigator.onLine) {
-    store.pendingSyncState = true;
-    hooks.updateNetworkStatusUI();
     return;
   }
 
-  try {
-    await ensureFirebaseReady();
-    if (!db || !fbFirestoreSdk || !firebaseUser) {
-      store.pendingSyncState = true;
-      hooks.updateNetworkStatusUI();
-      return;
-    }
-    const accRef = fbFirestoreSdk.doc(db, ...FIREBASE_COLLECTION_PATH, store.currentAccountLogin);
-    const payload = {
-      login: store.currentAccountLogin,
-      state: sanitizeForFirestore(store.appState),
-      updatedAt: Date.now()
-    };
-    if (resolvedCreatedAt) {
-      payload.createdAt = resolvedCreatedAt;
-    }
-    // Никогда не затираем существующий passHash пустой строкой
-    if (store.currentAccountPassHash) {
-      payload.passHash = store.currentAccountPassHash;
-    }
-    await fbFirestoreSdk.setDoc(accRef, payload, { merge: true });
-    store.pendingSyncState = false;
-    hooks.updateNetworkStatusUI();
-  } catch (e) {
-    console.warn('Firestore save queued offline:', e);
-    store.pendingSyncState = true;
-    hooks.updateNetworkStatusUI();
+  queuedSaveNeeded = true;
+  if (activeSavePromise) {
+    return activeSavePromise;
   }
+
+  activeSavePromise = (async () => {
+    try {
+      while (queuedSaveNeeded) {
+        queuedSaveNeeded = false;
+        if (!store.currentAccountLogin || store.currentAccountLogin !== targetLogin || !navigator.onLine) {
+          break;
+        }
+
+        await ensureFirebaseReady();
+        if (!db || !fbFirestoreSdk || !firebaseUser) {
+          store.pendingSyncState = true;
+          hooks.updateNetworkStatusUI();
+          break;
+        }
+
+        const seqAtStart = localMutationSeq;
+        const localSnapshot = sanitizeForFirestore(store.appState);
+        const accRef = fbFirestoreSdk.doc(db, ...FIREBASE_COLLECTION_PATH, targetLogin);
+        const passHashSnapshot = store.currentAccountPassHash;
+        const createdAtSnapshot = store.currentAccountCreatedAt || resolvedCreatedAt || null;
+
+        let committedState = null;
+
+        if (typeof fbFirestoreSdk.runTransaction === 'function') {
+          committedState = await fbFirestoreSdk.runTransaction(db, async (transaction) => {
+            const snap = await transaction.get(accRef);
+            const cloudData = snap.exists() ? snap.data() : null;
+            const cloudState = cloudData?.state && typeof cloudData.state === 'object' ? cloudData.state : null;
+
+            const mergedState = cloudState
+              ? mergeAccountStates([cloudState, localSnapshot]).state
+              : mergeStateWithDefaults(localSnapshot);
+
+            const payload = {
+              login: targetLogin,
+              state: sanitizeForFirestore(mergedState),
+              updatedAt: Date.now()
+            };
+            const effectiveCreatedAt = createdAtSnapshot || cloudData?.createdAt || mergedState.accountCreatedAt || null;
+            if (effectiveCreatedAt) payload.createdAt = effectiveCreatedAt;
+            // Никогда не затираем существующий passHash пустой строкой
+            if (passHashSnapshot) payload.passHash = passHashSnapshot;
+
+            transaction.set(accRef, payload, { merge: true });
+            return payload.state;
+          });
+        } else {
+          const snap = await fbFirestoreSdk.getDoc(accRef);
+          const cloudData = snap.exists() ? snap.data() : null;
+          const cloudState = cloudData?.state && typeof cloudData.state === 'object' ? cloudData.state : null;
+
+          const mergedState = cloudState
+            ? mergeAccountStates([cloudState, localSnapshot]).state
+            : mergeStateWithDefaults(localSnapshot);
+
+          const payload = {
+            login: targetLogin,
+            state: sanitizeForFirestore(mergedState),
+            updatedAt: Date.now()
+          };
+          const effectiveCreatedAt = createdAtSnapshot || cloudData?.createdAt || mergedState.accountCreatedAt || null;
+          if (effectiveCreatedAt) payload.createdAt = effectiveCreatedAt;
+          if (passHashSnapshot) payload.passHash = passHashSnapshot;
+
+          await fbFirestoreSdk.setDoc(accRef, payload, { merge: true });
+          committedState = payload.state;
+        }
+
+        if (store.currentAccountLogin !== targetLogin) break;
+
+        if (localMutationSeq === seqAtStart) {
+          const prevJson = JSON.stringify(store.appState);
+          const nextState = mergeStateWithDefaults(committedState);
+          const nextJson = JSON.stringify(nextState);
+
+          store.pendingSyncState = false;
+          writeLocalAccount(targetLogin, passHashSnapshot, nextState, {
+            createdAt: createdAtSnapshot || undefined,
+            pendingSync: false
+          });
+          store.inMemoryAccountsCache.set(targetLogin, {
+            login: targetLogin,
+            passHash: passHashSnapshot,
+            state: nextState,
+            createdAt: createdAtSnapshot || Date.now(),
+            updatedAt: Date.now(),
+            pendingSync: false
+          });
+
+          if (prevJson !== nextJson) {
+            store.isRemoteSyncApplying = true;
+            store.appState = nextState;
+            hooks.renderAll();
+            store.isRemoteSyncApplying = false;
+          }
+          hooks.updateNetworkStatusUI();
+        } else {
+          // Пока транзакция выполнялась, пользователь внёс новые данные — объединяем и повторяем сохранение
+          store.appState = mergeAccountStates([committedState, store.appState]).state;
+          writeLocalAccount(targetLogin, passHashSnapshot, store.appState, {
+            createdAt: createdAtSnapshot || undefined,
+            pendingSync: true
+          });
+          queuedSaveNeeded = true;
+        }
+      }
+    } catch (e) {
+      console.warn('Firestore save queued offline:', e);
+      store.pendingSyncState = true;
+      writeLocalAccount(targetLogin, store.currentAccountPassHash, store.appState, {
+        createdAt: resolvedCreatedAt || undefined,
+        pendingSync: true
+      });
+      hooks.updateNetworkStatusUI();
+    } finally {
+      activeSavePromise = null;
+    }
+  })();
+
+  return activeSavePromise;
 }
 
 export async function flushPendingSync() {
@@ -267,15 +397,22 @@ function combineCloudAccountDocs(primaryData, legacyData) {
 }
 
 export function subscribeAccountRealtime(login) {
+  if (unsubAccountSnapshot && subscribedLogin === login) {
+    return;
+  }
   if (unsubAccountSnapshot) {
     try { unsubAccountSnapshot(); } catch (_) {}
     unsubAccountSnapshot = null;
+    subscribedLogin = null;
   }
-  if (!db || !fbFirestoreSdk) return;
+  if (!db || !fbFirestoreSdk || !login) return;
   try {
+    subscribedLogin = login;
     const accRef = fbFirestoreSdk.doc(db, ...FIREBASE_COLLECTION_PATH, login);
     unsubAccountSnapshot = fbFirestoreSdk.onSnapshot(accRef, (snap) => {
       if (!snap.exists()) return;
+      if (snap.metadata?.hasPendingWrites) return;
+      if (store.currentAccountLogin !== login) return;
       const data = snap.data();
       if (data && data.passHash) {
         store.currentAccountPassHash = data.passHash;
@@ -283,21 +420,30 @@ export function subscribeAccountRealtime(login) {
       if (data && data.createdAt && !store.currentAccountCreatedAt) {
         store.currentAccountCreatedAt = data.createdAt;
       }
-      if (data && data.state && !store.pendingSyncState) {
+      if (data && data.state && typeof data.state === 'object') {
         const incomingCount = getStateRecordCount(data.state);
         const currentCount = getStateRecordCount(store.appState);
-        // Защита от затирания: если в malysh_accounts пришёл пустой документ,
-        // а у пользователя уже загружены записи (например, из legacy-коллекции accounts),
-        // не перезаписываем их пустотой, а отправляем актуальные данные в облако.
+        // Защита от затирания: если в облаке пустой документ, а локально есть записи — отправляем актуальные данные
         if (incomingCount === 0 && currentCount > 0) {
           saveAppState();
           return;
         }
+
+        // Всегда объединяем облачные и локальные данные, никогда не затирая вводные другого родителя
+        const { state: merged } = store.pendingSyncState
+          ? mergeAccountStates([data.state, store.appState])
+          : mergeAccountStates([store.appState, data.state]);
+
+        if (JSON.stringify(merged) === JSON.stringify(store.appState)) {
+          return;
+        }
+
         store.isRemoteSyncApplying = true;
-        store.appState = mergeStateWithDefaults(data.state);
+        store.appState = merged;
         writeLocalAccount(login, data.passHash || store.currentAccountPassHash, store.appState, {
           createdAt: data.createdAt || store.currentAccountCreatedAt || undefined,
-          passwordChangedAt: data.passwordChangedAt || undefined
+          passwordChangedAt: data.passwordChangedAt || undefined,
+          pendingSync: store.pendingSyncState
         });
         hooks.renderAll();
         store.isRemoteSyncApplying = false;
@@ -308,20 +454,25 @@ export function subscribeAccountRealtime(login) {
   } catch (_) {}
 }
 
-export async function syncSavedSessionFromCloud(savedLogin) {
-  const user = await ensureFirebaseReady();
-  if (!user || !db || !fbFirestoreSdk) return;
+export async function syncSavedSessionFromCloud(savedLogin, options = {}) {
+  const { skipResubscribe = false } = options;
+  lastCloudRefreshAt = Date.now();
   try {
+    const user = await ensureFirebaseReady();
+    if (!user || !db || !fbFirestoreSdk || store.currentAccountLogin !== savedLogin) return;
+
     const [primarySnap, legacySnap] = await Promise.all([
       fbFirestoreSdk.getDoc(fbFirestoreSdk.doc(db, ...FIREBASE_COLLECTION_PATH, savedLogin)),
       fbFirestoreSdk.getDoc(fbFirestoreSdk.doc(db, ...LEGACY_FIREBASE_COLLECTION_PATH, savedLogin)).catch(() => null)
     ]);
 
+    if (store.currentAccountLogin !== savedLogin) return;
+
     const primaryData = primarySnap.exists() ? primarySnap.data() : null;
     const legacyData = legacySnap && legacySnap.exists() ? legacySnap.data() : null;
     const combined = combineCloudAccountDocs(primaryData, legacyData);
 
-    if (combined && !store.pendingSyncState) {
+    if (combined) {
       if (combined.passHash) {
         store.currentAccountPassHash = combined.passHash;
       }
@@ -329,26 +480,56 @@ export async function syncSavedSessionFromCloud(savedLogin) {
         store.currentAccountCreatedAt = combined.createdAt;
       }
       if (combined.state) {
-        const localCount = getStateRecordCount(store.appState);
-        const cloudCount = getStateRecordCount(combined.state);
-        // Если локально есть несинхронизированные записи, объединяем их с облаком
-        if (localCount > 0 && cloudCount > 0) {
-          store.appState = mergeAccountStates([combined.state, store.appState]).state;
-        } else if (cloudCount >= localCount) {
-          store.appState = combined.state;
-        }
+        const { state: merged } = store.pendingSyncState
+          ? mergeAccountStates([combined.state, store.appState])
+          : mergeAccountStates([store.appState, combined.state]);
+
+        const changedFromLocal = JSON.stringify(merged) !== JSON.stringify(store.appState);
+        const shouldPushToCloud = Boolean(
+          store.pendingSyncState
+          || combined.needsPrimaryMigration
+          || hasLocalAdditionsOverCloud(merged, combined.state)
+        );
+
+        store.isRemoteSyncApplying = true;
+        store.appState = merged;
         writeLocalAccount(savedLogin, combined.passHash || store.currentAccountPassHash, store.appState, {
           createdAt: combined.createdAt || store.currentAccountCreatedAt || undefined,
-          passwordChangedAt: combined.passwordChangedAt || undefined
+          passwordChangedAt: combined.passwordChangedAt || undefined,
+          pendingSync: shouldPushToCloud
         });
-        hooks.renderAll();
-        if (combined.needsPrimaryMigration) {
+        if (changedFromLocal) {
+          hooks.renderAll();
+        }
+        store.isRemoteSyncApplying = false;
+
+        if (shouldPushToCloud) {
           await saveAppState();
         }
       }
+    } else if (store.pendingSyncState) {
+      await saveAppState();
     }
-    subscribeAccountRealtime(savedLogin);
-  } catch (_) {}
+
+    if (!skipResubscribe) {
+      subscribeAccountRealtime(savedLogin);
+    }
+  } catch (_) {
+  } finally {
+    store.initialCloudSyncDone = true;
+    hooks.updateNetworkStatusUI();
+  }
+}
+
+export async function refreshAccountFromCloud() {
+  if (!store.currentAccountLogin || !navigator.onLine) return;
+  if (store.pendingSyncState) {
+    await flushPendingSync();
+    return;
+  }
+  const now = Date.now();
+  if (now - lastCloudRefreshAt < 8000) return;
+  await syncSavedSessionFromCloud(store.currentAccountLogin);
 }
 
 const INVITE_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -762,10 +943,15 @@ export function logoutAccount() {
     try { unsubAccountSnapshot(); } catch (_) {}
     unsubAccountSnapshot = null;
   }
+  subscribedLogin = null;
+  queuedSaveNeeded = false;
+  activeSavePromise = null;
   const previousLogin = store.currentAccountLogin || '';
   store.currentAccountLogin = null;
   store.currentAccountPassHash = null;
   store.currentAccountCreatedAt = null;
+  store.pendingSyncState = false;
+  store.initialCloudSyncDone = true;
   writeLocalSession(null);
   closeModal('modal-profile');
 

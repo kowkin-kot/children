@@ -510,7 +510,9 @@ function recordNotificationHistoryEntries(alerts, now = Date.now()) {
 
   if (added) {
     store.appState.notifications.history = history.slice(0, 30);
-    saveAppState();
+    if (store.initialCloudSyncDone) {
+      saveAppState();
+    }
     renderNotifHistoryList();
   }
 }
@@ -801,6 +803,7 @@ export function applyThemeMode(mode) {
 
 export function setThemeMode(mode) {
   store.appState.themeMode = mode;
+  store.appState.uiUpdatedAt = Date.now();
   applyThemeMode(mode);
   saveAppState();
 }
@@ -963,6 +966,7 @@ export function saveProfileSettings(e) {
   store.appState.babyDob = dob;
   store.appState.babyGender = store.tempGenderSelection;
   store.appState.autoNightAfter23 = nextAutoNight;
+  store.appState.profileUpdatedAt = Date.now();
 
   if (roleVal) {
     const savedRole = writeCaregiverName(store.currentAccountLogin, roleVal);

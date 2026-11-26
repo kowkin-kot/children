@@ -132,7 +132,8 @@ export function saveToothRecord(e) {
   store.appState.teethMap[id] = {
     erupted,
     date: erupted ? date : '',
-    symptoms: [...store.tempToothSymptoms]
+    symptoms: [...store.tempToothSymptoms],
+    updatedAt: Date.now()
   };
   closeModal('modal-tooth');
   saveAppState();
@@ -142,6 +143,7 @@ export function saveToothRecord(e) {
 
 export function setVaccineFilter(filter) {
   store.appState.vaccineFilter = filter;
+  store.appState.uiUpdatedAt = Date.now();
   saveAppState();
   renderVaccinesList();
 }
@@ -235,7 +237,8 @@ export function saveVaccineRecord(e) {
     date: document.getElementById('vac-date-input')?.value || getTodayIso(),
     series: (document.getElementById('vac-series-input')?.value || '').trim(),
     drug: (document.getElementById('vac-drug-input')?.value || '').trim(),
-    note: (document.getElementById('vac-note-input')?.value || '').trim()
+    note: (document.getElementById('vac-note-input')?.value || '').trim(),
+    updatedAt: Date.now()
   };
   closeModal('modal-vaccine');
   saveAppState();

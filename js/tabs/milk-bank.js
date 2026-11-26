@@ -1,6 +1,6 @@
 // Трекер сцеживания (левая / правая грудь) и «Банк молока» с мягкой подсветкой сроков хранения
 
-import { store, hooks, getCurrentCaregiverName } from '../state.js';
+import { store, hooks, getCurrentCaregiverName, markDeletedId } from '../state.js';
 import {
   escapeHtml,
   getTodayIso,
@@ -301,7 +301,7 @@ export function updatePumpingTimerClock() {
 
 export function togglePumpingTimer() {
   if (!store.appState.timers.pumping) {
-    store.appState.timers.pumping = { active: false, startTime: null };
+    store.appState.timers.pumping = { active: false, startTime: null, updatedAt: 0 };
   }
   const timer = store.appState.timers.pumping;
   const now = Date.now();
@@ -309,6 +309,7 @@ export function togglePumpingTimer() {
   if (!timer.active) {
     timer.active = true;
     timer.startTime = now;
+    timer.updatedAt = Math.max(now, (Number(timer.updatedAt) || 0) + 1);
     const startInp = document.getElementById('milk-pump-datetime');
     if (startInp) startInp.value = toDatetimeLocalValue(now);
     saveAppState();
@@ -321,6 +322,7 @@ export function togglePumpingTimer() {
     const durMin = Math.max(1, Math.round((now - startTs) / 60000));
     timer.active = false;
     timer.startTime = null;
+    timer.updatedAt = Math.max(now, (Number(timer.updatedAt) || 0) + 1);
     saveAppState();
     renderMilkBankSummary();
     renderMilkBankModal();
@@ -417,6 +419,7 @@ export function savePumpingSession(e) {
     if (!dtVal) parsedTs = timer.startTime;
     timer.active = false;
     timer.startTime = null;
+    timer.updatedAt = Math.max(Date.now(), (Number(timer.updatedAt) || 0) + 1);
   }
 
   if (totalMl <= 0 && effectiveDurMin <= 0) {
@@ -462,7 +465,8 @@ export function savePumpingSession(e) {
     storage: storage !== 'none' ? storage : '',
     milkBatchId: batchId,
     note,
-    author
+    author,
+    updatedAt: now
   });
   store.appState.journalLogs.sort((a, b) => (b.startTime || 0) - (a.startTime || 0));
 
@@ -536,7 +540,8 @@ export function useMilkBatchForFeeding(batchId) {
     startTime: now,
     endTime: now,
     durationMin: 0,
-    author: getCurrentCaregiverName()
+    author: getCurrentCaregiverName(),
+    updatedAt: now
   });
   store.appState.journalLogs.sort((a, b) => (b.startTime || 0) - (a.startTime || 0));
   store.selectedJournalDateIso = getTodayIso();
@@ -607,6 +612,7 @@ export function restoreMilkBatch(batchId) {
 }
 
 export function deleteMilkBatch(batchId) {
+  markDeletedId('milkBank', batchId, Date.now());
   store.appState.milkBank = ensureMilkBankArray().filter(b => b.id !== batchId);
   saveAppState();
   renderMilkBankSummary();
@@ -731,6 +737,7 @@ function renderBatchItemHtml(batch, exp, isCompact = false) {
 
 export function toggleMilkFeedingEnded(ended) {
   store.appState.milkFeedingEnded = Boolean(ended);
+  store.appState.profileUpdatedAt = Date.now();
   saveAppState();
   renderMilkBankSummary();
   renderMilkBankModal();

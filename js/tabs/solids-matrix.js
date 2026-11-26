@@ -3,6 +3,7 @@
 import { store, hooks, getCurrentCaregiverName } from '../state.js';
 import {
   escapeHtml,
+  generateEntityId,
   getTodayIso,
   formatDateRu,
   openModal,
@@ -375,7 +376,8 @@ export function addCustomSolidsFood(e) {
     firstDate: getTodayIso(),
     preference: 'neutral',
     reaction: 'none',
-    note: ''
+    note: '',
+    updatedAt: Date.now()
   };
   matrixUiState.showAddCustom = false;
   matrixUiState.editingFoodId = newFood.id;
@@ -400,7 +402,7 @@ export function quickToggleSolidsFoodTried(foodId, ev) {
   const map = getMatrixMap();
   const cur = map[foodId];
   if (cur && cur.tried) {
-    map[foodId] = { ...cur, tried: false };
+    map[foodId] = { ...cur, tried: false, updatedAt: Date.now() };
   } else {
     map[foodId] = {
       tried: true,
@@ -408,7 +410,8 @@ export function quickToggleSolidsFoodTried(foodId, ev) {
       firstDate: cur?.firstDate || getTodayIso(),
       preference: cur?.preference || 'neutral',
       reaction: cur?.reaction || 'none',
-      note: cur?.note || ''
+      note: cur?.note || '',
+      updatedAt: Date.now()
     };
   }
   saveAppState();
@@ -448,6 +451,7 @@ export function updateSolidsFoodField(foodId, field, value) {
   } else if (field === 'note') {
     next.note = String(value || '').trim().slice(0, 140);
   }
+  next.updatedAt = Date.now();
   map[foodId] = next;
   saveAppState();
   renderSolidsMatrixSummary();
@@ -458,11 +462,13 @@ export function logSolidsFoodToJournalFromMatrix(foodId) {
   const catalog = getAllSolidsCatalog();
   const food = catalog.find(f => f.id === foodId);
   if (!food) return;
+  const now = Date.now();
   const map = getMatrixMap();
   const rec = map[foodId] || { tried: true, tries: 1, firstDate: getTodayIso(), preference: 'neutral', reaction: 'none', note: '' };
   rec.tried = true;
   rec.tries = Math.max(1, Number(rec.tries) || 0) + (map[foodId]?.tried ? 1 : 0);
   if (!rec.firstDate) rec.firstDate = getTodayIso();
+  rec.updatedAt = now;
   map[foodId] = rec;
 
   const prefText = rec.preference === 'like' ? 'с удовольствием' : rec.preference === 'dislike' ? 'не понравилось' : 'нейтрально';
@@ -472,16 +478,16 @@ export function logSolidsFoodToJournalFromMatrix(foodId) {
     tummy: ' • реакция: стул / газики',
     spitup: ' • реакция: срыгивание'
   };
-  const now = Date.now();
   store.appState.journalLogs.unshift({
-    id: 'log_' + now,
+    id: generateEntityId('log'),
     type: 'feeding_solids',
     subtype: 'solids',
     title: `Прикорм: ${food.name} (${food.category}) • ${prefText}${reactMap[rec.reaction] || ''}${rec.note ? ` • ${rec.note}` : ''}`,
     startTime: now,
     endTime: now,
     durationMin: 0,
-    author: getCurrentCaregiverName()
+    author: getCurrentCaregiverName(),
+    updatedAt: now
   });
 
   saveAppState();
@@ -522,7 +528,8 @@ export function syncSolidsMatrixFromLog(prodName, appetite, reactionLabel, note)
     firstDate: prev.firstDate || getTodayIso(),
     preference,
     reaction,
-    note: note || prev.note || ''
+    note: note || prev.note || '',
+    updatedAt: Date.now()
   };
 }
 

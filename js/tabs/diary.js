@@ -1,7 +1,7 @@
 // Вкладка 6: Дневник достижений и заметок
 
-import { store, hooks } from '../state.js';
-import { escapeHtml, getTodayIso, formatDateRu, showToast } from '../utils.js';
+import { store, hooks, getCurrentCaregiverName, markDeletedId } from '../state.js';
+import { escapeHtml, generateEntityId, getTodayIso, formatDateRu, showToast } from '../utils.js';
 import { saveAppState } from '../firebase.js';
 
 export function addDiaryEntry(e) {
@@ -12,12 +12,15 @@ export function addDiaryEntry(e) {
   const text = (document.getElementById('diary-text-input')?.value || '').trim();
 
   if (!title) return;
+  const now = Date.now();
   store.appState.diaryEntries.unshift({
-    id: 'diary_' + Date.now(),
+    id: generateEntityId('diary'),
     date,
     tag,
     title,
-    text
+    text,
+    author: getCurrentCaregiverName(),
+    updatedAt: now
   });
 
   const titleInp = document.getElementById('diary-title-input');
@@ -31,6 +34,7 @@ export function addDiaryEntry(e) {
 }
 
 export function deleteDiaryEntry(entryId) {
+  markDeletedId('diary', entryId, Date.now());
   store.appState.diaryEntries = (store.appState.diaryEntries || []).filter(e => e.id !== entryId);
   saveAppState();
   renderDiaryTab();
