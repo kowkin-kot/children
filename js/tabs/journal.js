@@ -904,6 +904,46 @@ export function deleteJournalLog(logId) {
   showToast('Запись удалена');
 }
 
+export const RHYTHM_FILTER_OPTIONS = [
+  { key: 'all', label: 'Все', dotCls: 'bg-slate-400 dark:bg-slate-500' },
+  { key: 'sleep', label: 'Сон', dotCls: 'bg-indigo-500' },
+  { key: 'feeding', label: 'Кормление', dotCls: 'bg-rose-500' },
+  { key: 'awake', label: 'Бодрствование', dotCls: 'bg-amber-400' },
+  { key: 'walk', label: 'Прогулка', dotCls: 'bg-emerald-500' },
+  { key: 'care', label: 'Уход', dotCls: 'bg-sky-400' }
+];
+
+let activeRhythmFilter = 'all';
+const rhythmDayDetailState = {
+  dateIso: '',
+  filter: 'all',
+  zoom: 2
+};
+
+export function getEventRhythmCategory(ev) {
+  const type = typeof ev === 'string' ? ev : ev?.type;
+  if (type === 'sleep') return 'sleep';
+  if (type === 'feeding' || type === 'feeding_solids') return 'feeding';
+  if (type === 'awake') return 'awake';
+  if (type === 'walk') return 'walk';
+  return 'care';
+}
+
+export function matchesRhythmFilter(ev, filterKey = 'all') {
+  if (!filterKey || filterKey === 'all') return true;
+  return getEventRhythmCategory(ev) === filterKey;
+}
+
+export function getRhythmFilter() {
+  return activeRhythmFilter;
+}
+
+export function setRhythmFilter(filterKey = 'all') {
+  const valid = RHYTHM_FILTER_OPTIONS.some(opt => opt.key === filterKey);
+  activeRhythmFilter = valid ? filterKey : 'all';
+  renderRhythmAnalytics();
+}
+
 export function setRhythmDays(days) {
   store.appState.rhythmDays = days === 3 ? 3 : days === 14 ? 14 : 7;
   store.appState.uiUpdatedAt = Date.now();
@@ -1286,6 +1326,8 @@ function buildDayEventsForBounds(appState, dayStart, dayEnd, isToday = false, no
         id: log.id || '',
         type: log.type,
         subtype: log.subtype || '',
+        sleepType: log.sleepType || '',
+        author: typeof log.author === 'string' ? log.author.trim() : '',
         amountMl: Number(log.amountMl) || 0,
         title: formatDisplayLogTitle(log),
         origStart: s,
@@ -1319,6 +1361,8 @@ function buildDayEventsForBounds(appState, dayStart, dayEnd, isToday = false, no
             id: '',
             type: def.type,
             subtype: def.key === 'feeding' ? (tm.subtype || '') : '',
+            sleepType: def.key === 'sleep' ? (tm.sleepType || '') : '',
+            author: '',
             amountMl: 0,
             title: def.label,
             origStart: tm.startTime,
@@ -1442,6 +1486,7 @@ export function computeDaySummaryMetrics(appState, dayStart, dayEnd, isToday = f
   const sleepItems = sleepRawItems.map(ev => ({
     id: ev.id,
     title: ev.title,
+    sleepType: ev.sleepType || '',
     start: ev.start,
     end: ev.end,
     origStart: ev.origStart,
@@ -1596,12 +1641,58 @@ export function computeDaySummaryMetrics(appState, dayStart, dayEnd, isToday = f
   };
 }
 
+function getRhythmSegmentColor(type, isDerivedAwake = false) {
+  return type === 'sleep'
+    ? 'bg-indigo-500/90'
+    : (type === 'feeding' || type === 'feeding_solids')
+      ? 'bg-rose-500'
+      : type === 'awake'
+        ? (isDerivedAwake ? 'bg-amber-300/75 dark:bg-amber-400/55' : 'bg-amber-400')
+        : type === 'walk'
+          ? 'bg-emerald-500'
+          : 'bg-sky-400';
+}
+
+function calcRhythmSegmentLayout(ev, dayStart, minPxFallbackPct) {
+  const leftPct = Math.max(0, Math.min(100, ((ev.start - dayStart) / 86400000) * 100));
+  const endTs = Math.max(ev.end, ev.visualEnd || ev.end);
+  const rawWidthPct = ((endTs - ev.start) / 86400000) * 100;
+  const widthPct = Math.min(100 - leftPct, Math.max(minPxFallbackPct, rawWidthPct));
+  return { leftPct, widthPct };
+}
+
+function getRowFilterSummaryLabel(daySummary, filterKey) {
+  if (filterKey === 'feeding') {
+    return daySummary.feedCount > 0 ? `${daySummary.feedCount} раз` : '—';
+  }
+  if (filterKey === 'awake') {
+    return daySummary.awakeMin > 0 ? formatMinutesHuman(daySummary.awakeMin) : '—';
+  }
+  if (filterKey === 'walk') {
+    const walkMin = Math.round(
+      (daySummary.dayEvents || [])
+        .filter(ev => ev.type === 'walk')
+        .reduce((acc, ev) => acc + Math.max(0, ev.end - ev.start), 0) / 60000
+    );
+    return walkMin > 0 ? formatMinutesHuman(walkMin) : '—';
+  }
+  if (filterKey === 'care') {
+    const careCount = (daySummary.dayEvents || []).filter(ev => getEventRhythmCategory(ev) === 'care').length;
+    return careCount > 0 ? `${careCount} соб.` : '—';
+  }
+  return daySummary.sleepMin > 0 ? formatMinutesHuman(daySummary.sleepMin) : '—';
+}
+
 export function renderRhythmAnalytics() {
   const wrap = document.getElementById('rhythm-analytics-container');
   if (!wrap) return;
 
   const appState = store.appState;
   const daysCount = appState.rhythmDays === 3 ? 3 : appState.rhythmDays === 14 ? 14 : 7;
+  const filterKey = activeRhythmFilter;
+  const showSleepRecs = filterKey === 'all' || filterKey === 'sleep';
+  const showFeedRecs = filterKey === 'all' || filterKey === 'feeding';
+
   const activeBtnCls = 'px-2.5 py-1 rounded-lg text-xs font-bold bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-2xs transition';
   const idleBtnCls = 'px-2.5 py-1 rounded-lg text-xs font-bold text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition';
 
@@ -1621,30 +1712,27 @@ export function renderRhythmAnalytics() {
   const nowPct = Math.max(0, Math.min(100, ((now - todayStart) / 86400000) * 100));
   const todayLabel = `${String(todayStartObj.getDate()).padStart(2, '0')}.${String(todayStartObj.getMonth() + 1).padStart(2, '0')}`;
 
-  const getSegmentColor = (type, isDerivedAwake = false) => (
-    type === 'sleep'
-      ? 'bg-indigo-500/90'
-      : (type === 'feeding' || type === 'feeding_solids')
-        ? 'bg-rose-500'
-        : type === 'awake'
-          ? (isDerivedAwake ? 'bg-amber-300/75 dark:bg-amber-400/55' : 'bg-amber-400')
-          : type === 'walk'
-            ? 'bg-emerald-500'
-            : 'bg-sky-400'
-  );
-
-  // Точное вычисление ширины без наезда на следующее событие (чтобы короткое бодрствование 5 мин не перекрывалось кормлением)
-  const calcSegmentLayout = (ev, dayStart, minPxFallbackPct) => {
-    const leftPct = Math.max(0, Math.min(100, ((ev.start - dayStart) / 86400000) * 100));
-    const endTs = Math.max(ev.end, ev.visualEnd || ev.end);
-    const rawWidthPct = ((endTs - ev.start) / 86400000) * 100;
-    const widthPct = Math.min(100 - leftPct, Math.max(minPxFallbackPct, rawWidthPct));
-    return { leftPct, widthPct };
-  };
+  // Панель фильтров по категориям
+  const filterBarHtml = `
+    <div class="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5" role="tablist" aria-label="Фильтр категорий графика">
+      ${RHYTHM_FILTER_OPTIONS.map(opt => {
+        const isActive = opt.key === filterKey;
+        const btnCls = isActive
+          ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 border-slate-900 dark:border-slate-100 shadow-2xs'
+          : 'bg-warmgray/80 dark:bg-slate-800/90 text-slate-600 dark:text-slate-300 border-stone-200/70 dark:border-slate-700 hover:bg-stone-200/70 dark:hover:bg-slate-700';
+        return `
+          <button type="button" data-rhythm-filter="${opt.key}" onclick="setRhythmFilter('${opt.key}')" class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-[11px] font-bold shrink-0 transition cursor-pointer ${btnCls}">
+            <span class="w-2 h-2 rounded-sm shrink-0 ${opt.dotCls}"></span>
+            <span>${opt.label}</span>
+          </button>
+        `;
+      }).join('')}
+    </div>
+  `;
 
   // 1. Крупный блок «Сегодня» + динамические рекомендации
   const todaySummary = computeDaySummaryMetrics(appState, todayStart, todayEnd, true, now);
-  const todayEvents = todaySummary.dayEvents;
+  const todayEvents = todaySummary.dayEvents.filter(ev => matchesRhythmFilter(ev, filterKey));
   const recs = computeTodayRhythmRecommendations(appState, now, todayStart, todayEnd);
 
   const todaySleepMin = todaySummary.sleepMin;
@@ -1659,15 +1747,15 @@ export function renderRhythmAnalytics() {
 
   const todaySegmentsHtml = todayEvents.map(ev => {
     const minPct = ev.type === 'awake' && !ev.isDerivedAwake ? 0.55 : ev.isDerivedAwake ? 0.35 : 0.65;
-    const { leftPct, widthPct } = calcSegmentLayout(ev, todayStart, minPct);
-    const color = getSegmentColor(ev.type, ev.isDerivedAwake);
+    const { leftPct, widthPct } = calcRhythmSegmentLayout(ev, todayStart, minPct);
+    const color = getRhythmSegmentColor(ev.type, ev.isDerivedAwake);
     const timeRange = `${formatClockHHMM(ev.start)}–${formatClockHHMM(ev.end)}`;
     const tooltip = `${ev.title} (${timeRange})`;
     const durMin = Math.round(ev.durMs / 60000);
     const showInnerLabel = !ev.isDerivedAwake && widthPct >= 7.5 && durMin >= 30;
     const innerLabel = showInnerLabel ? `<span class="px-1 text-[10px] font-bold text-white/95 truncate leading-none">${formatMinutesHuman(durMin)}</span>` : '';
     const liveCls = ev.isLive && !ev.isDerivedAwake ? 'animate-pulse ring-1 ring-white/80' : '';
-    const clickAttr = ev.id ? `onclick="openEditJournalLogModal('${escapeHtml(ev.id)}')"` : '';
+    const clickAttr = ev.id ? `onclick="event.stopPropagation(); openEditJournalLogModal('${escapeHtml(ev.id)}')"` : '';
     const cursorCls = ev.id ? 'cursor-pointer hover:brightness-110' : '';
     const borderCls = ev.isDerivedAwake ? '' : 'border border-white/35 dark:border-slate-900/35';
     const minPxStyle = !ev.isDerivedAwake ? 'min-width:4px;' : 'min-width:2px;';
@@ -1676,7 +1764,7 @@ export function renderRhythmAnalytics() {
   }).join('');
 
   // Пунктирные блоки рекомендаций БЕЗ заливки на графике «Сегодня»
-  const recSleepHtml = recs.sleepRecs.map(rec => {
+  const recSleepHtml = showSleepRecs ? recs.sleepRecs.map(rec => {
     const leftPct = Math.max(0, Math.min(100, ((rec.start - todayStart) / 86400000) * 100));
     const widthPct = Math.min(100 - leftPct, Math.max(2.2, ((rec.end - rec.start) / 86400000) * 100));
     const timeRange = rec.isNight ? `с ~${formatClockHHMM(rec.start)}` : `${formatClockHHMM(rec.start)}–${formatClockHHMM(rec.end)}`;
@@ -1686,49 +1774,62 @@ export function renderRhythmAnalytics() {
       ? `<span class="px-1 text-[10px] font-bold text-indigo-600 dark:text-indigo-300 truncate leading-none">${formatClockHHMM(rec.start)}</span>`
       : '';
     return `<div title="${escapeHtml(tooltip)}" class="pointer-events-auto absolute top-1 bottom-1 rounded-md bg-transparent border-2 border-dashed border-indigo-500/90 dark:border-indigo-400/90 flex items-center justify-center overflow-hidden z-[7]" style="left:${leftPct.toFixed(2)}%; width:${widthPct.toFixed(2)}%">${innerTxt}</div>`;
-  }).join('');
+  }).join('') : '';
 
-  const recFeedHtml = recs.feedRecs.map(rec => {
+  const recFeedHtml = showFeedRecs ? recs.feedRecs.map(rec => {
     const leftPct = Math.max(0, Math.min(100, ((rec.start - todayStart) / 86400000) * 100));
     const widthPct = Math.min(100 - leftPct, Math.max(1.5, ((rec.end - rec.start) / 86400000) * 100));
     const tooltip = `${rec.label} (~${formatClockHHMM(rec.start)}) • ${rec.detail}`;
     return `<div title="${escapeHtml(tooltip)}" class="pointer-events-auto absolute top-1 bottom-1 rounded-md bg-transparent border-2 border-dashed border-rose-500/90 dark:border-rose-400/90 z-[8]" style="left:${leftPct.toFixed(2)}%; width:${widthPct.toFixed(2)}%; min-width:8px;"></div>`;
-  }).join('');
+  }).join('') : '';
 
   // Текстовые подсказки ближайших рекомендаций (динамически обновляются)
-  const nextSleepRec = recs.sleepRecs[0] || null;
-  const nextFeedRec = recs.feedRecs[0] || null;
+  const nextSleepRec = showSleepRecs ? (recs.sleepRecs[0] || null) : null;
+  const nextFeedRec = showFeedRecs ? (recs.feedRecs[0] || null) : null;
   let sleepHintText = '';
-  if (recs.activeSleepExpectedWake) {
-    sleepHintText = `Спит сейчас • пробуждение ~${formatClockHHMM(recs.activeSleepExpectedWake)}`;
-  } else if (nextSleepRec) {
-    const diffMin = Math.max(0, Math.round((nextSleepRec.start - now) / 60000));
-    sleepHintText = nextSleepRec.overdue || diffMin <= 5
-      ? `${nextSleepRec.isNight ? 'Ночной сон' : 'Сон'}: пора укладывать сейчас`
-      : `${nextSleepRec.isNight ? 'Ночной сон' : 'След. сон'}: ~${formatClockHHMM(nextSleepRec.start)} (через ${formatMinutesHuman(diffMin)})`;
+  if (showSleepRecs) {
+    if (recs.activeSleepExpectedWake) {
+      sleepHintText = `Спит сейчас • пробуждение ~${formatClockHHMM(recs.activeSleepExpectedWake)}`;
+    } else if (nextSleepRec) {
+      const diffMin = Math.max(0, Math.round((nextSleepRec.start - now) / 60000));
+      sleepHintText = nextSleepRec.overdue || diffMin <= 5
+        ? `${nextSleepRec.isNight ? 'Ночной сон' : 'Сон'}: пора укладывать сейчас`
+        : `${nextSleepRec.isNight ? 'Ночной сон' : 'След. сон'}: ~${formatClockHHMM(nextSleepRec.start)} (через ${formatMinutesHuman(diffMin)})`;
+    }
   }
 
   let feedHintText = '';
-  if (appState.timers?.feeding?.active) {
-    feedHintText = nextFeedRec ? `Кормление идёт • след. ~${formatClockHHMM(nextFeedRec.start)}` : 'Кормление идёт сейчас';
-  } else if (nextFeedRec) {
-    const diffMin = Math.max(0, Math.round((nextFeedRec.start - now) / 60000));
-    feedHintText = nextFeedRec.overdue || diffMin <= 5
-      ? 'Кормление: пора покормить сейчас'
-      : `След. кормление: ~${formatClockHHMM(nextFeedRec.start)} (через ${formatMinutesHuman(diffMin)})`;
+  if (showFeedRecs) {
+    if (appState.timers?.feeding?.active) {
+      feedHintText = nextFeedRec ? `Кормление идёт • след. ~${formatClockHHMM(nextFeedRec.start)}` : 'Кормление идёт сейчас';
+    } else if (nextFeedRec) {
+      const diffMin = Math.max(0, Math.round((nextFeedRec.start - now) / 60000));
+      feedHintText = nextFeedRec.overdue || diffMin <= 5
+        ? 'Кормление: пора покормить сейчас'
+        : `След. кормление: ~${formatClockHHMM(nextFeedRec.start)} (через ${formatMinutesHuman(diffMin)})`;
+    }
   }
 
   const statInfoIcon = `<svg class="w-3 h-3 opacity-70 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>`;
+  const zoomIcon = `<svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/><path d="M11 8v6"/><path d="M8 11h6"/></svg>`;
+
+  const emptyTodayNotice = todayEvents.length === 0 && filterKey !== 'all'
+    ? `<div class="pointer-events-none absolute inset-0 flex items-center justify-center text-[11px] font-medium text-slate-400">Нет событий в выбранной категории</div>`
+    : '';
 
   const todayHeroHtml = `
     <div class="p-3 sm:p-3.5 rounded-2xl bg-warmgray/60 dark:bg-slate-800/60 border border-stone-200/70 dark:border-slate-700/70 space-y-2.5">
       <div class="flex flex-wrap items-center justify-between gap-2">
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 flex-wrap">
           <span class="inline-flex items-center gap-1.5 text-xs sm:text-sm font-extrabold text-slate-900 dark:text-slate-100">
             <span class="w-2 h-2 rounded-full bg-rose-500"></span>
             Сегодня, ${todayLabel}
           </span>
           <span class="text-[11px] font-semibold text-rose-500 dark:text-rose-400">сейчас ${formatClockHHMM(now)}</span>
+          <button type="button" onclick="openRhythmDayDetail('${todayIso}')" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white dark:bg-slate-900 hover:bg-rose-50 dark:hover:bg-rose-950/50 text-[11px] font-bold text-slate-700 dark:text-slate-200 border border-stone-200/80 dark:border-slate-700 transition cursor-pointer">
+            ${zoomIcon}
+            <span>Увеличить</span>
+          </button>
         </div>
         <div class="flex flex-wrap items-center gap-1.5 text-[11px] font-semibold">
           <button type="button" onclick="openJournalMetricDetail('sleep', '${todayIso}')" title="Нажмите, чтобы посмотреть из чего складывается сон" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/70 text-indigo-600 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/50 active:scale-[0.97] transition cursor-pointer">
@@ -1744,11 +1845,12 @@ export function renderRhythmAnalytics() {
       </div>
 
       <div class="space-y-1">
-        <div class="relative h-11 sm:h-12 rounded-xl bg-white dark:bg-slate-900 border border-stone-200/80 dark:border-slate-700 overflow-hidden">
+        <div onclick="openRhythmDayDetail('${todayIso}')" title="Нажмите, чтобы открыть увеличенный график и статистику за сегодня" class="relative h-11 sm:h-12 rounded-xl bg-white dark:bg-slate-900 border border-stone-200/80 dark:border-slate-700 overflow-hidden cursor-pointer hover:border-rose-300 dark:hover:border-rose-700 transition">
           ${todayHourGridLines}
           ${todaySegmentsHtml}
           ${recSleepHtml}
           ${recFeedHtml}
+          ${emptyTodayNotice}
           <div title="Текущее время: ${formatClockHHMM(now)}" class="pointer-events-none absolute top-0 bottom-0 w-0.5 bg-rose-500 z-10" style="left:${nowPct.toFixed(2)}%">
             <span class="absolute -top-0.5 -left-[3px] w-2 h-2 rounded-full bg-rose-500"></span>
           </div>
@@ -1775,7 +1877,7 @@ export function renderRhythmAnalytics() {
     </div>
   `;
 
-  // 2. Сравнительная лента за 3 / 7 / 14 дней (с вертикальной линией текущего времени и отображением бодрствования)
+  // 2. Сравнительная лента за 3 / 7 / 14 дней (каждый день кликабелен для увеличенного просмотра)
   const shortWeekdays = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
   const rowHeightCls = daysCount === 3 ? 'h-6' : daysCount === 7 ? 'h-5' : 'h-4';
   const rows = [];
@@ -1784,6 +1886,7 @@ export function renderRhythmAnalytics() {
     const dayStart = todayStart - i * 86400000;
     const dayEnd = dayStart + 86400000;
     const d = new Date(dayStart);
+    const dayIso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     const dateStr = `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}`;
     const label = i === 0
       ? 'Сег.'
@@ -1794,11 +1897,11 @@ export function renderRhythmAnalytics() {
           : dateStr;
 
     const daySummary = i === 0 ? todaySummary : computeDaySummaryMetrics(appState, dayStart, dayEnd, false, now);
-    const dayEvents = daySummary.dayEvents;
+    const dayEvents = daySummary.dayEvents.filter(ev => matchesRhythmFilter(ev, filterKey));
     const segments = dayEvents.map(ev => {
       const minPct = ev.isDerivedAwake ? 0.35 : 0.6;
-      const { leftPct, widthPct } = calcSegmentLayout(ev, dayStart, minPct);
-      const color = getSegmentColor(ev.type, ev.isDerivedAwake);
+      const { leftPct, widthPct } = calcRhythmSegmentLayout(ev, dayStart, minPct);
+      const color = getRhythmSegmentColor(ev.type, ev.isDerivedAwake);
       const timeRange = `${formatClockHHMM(ev.start)}–${formatClockHHMM(ev.end)}`;
       const minPxStyle = !ev.isDerivedAwake ? 'min-width:3px;' : 'min-width:2px;';
       return `<div title="${escapeHtml(`${ev.title} (${timeRange})`)}" class="absolute top-0 bottom-0 rounded-sm ${color} ${ev.isLive && !ev.isDerivedAwake ? 'animate-pulse' : ''}" style="left:${leftPct.toFixed(2)}%; width:${widthPct.toFixed(2)}%; ${minPxStyle}"></div>`;
@@ -1807,45 +1910,57 @@ export function renderRhythmAnalytics() {
     // На строке «Сег.» в сравнении также показываем пунктирный план сна/кормлений
     let rowRecsHtml = '';
     if (i === 0) {
-      const rowSleepRecs = recs.sleepRecs.map(rec => {
+      const rowSleepRecs = showSleepRecs ? recs.sleepRecs.map(rec => {
         const leftPct = Math.max(0, Math.min(100, ((rec.start - todayStart) / 86400000) * 100));
         const widthPct = Math.min(100 - leftPct, Math.max(1.8, ((rec.end - rec.start) / 86400000) * 100));
         return `<div title="${escapeHtml(`${rec.label} (~${formatClockHHMM(rec.start)})`)}" class="absolute top-0.5 bottom-0.5 rounded-sm bg-transparent border border-dashed border-indigo-500/90 dark:border-indigo-400/90 z-[7]" style="left:${leftPct.toFixed(2)}%; width:${widthPct.toFixed(2)}%"></div>`;
-      }).join('');
-      const rowFeedRecs = recs.feedRecs.map(rec => {
+      }).join('') : '';
+      const rowFeedRecs = showFeedRecs ? recs.feedRecs.map(rec => {
         const leftPct = Math.max(0, Math.min(100, ((rec.start - todayStart) / 86400000) * 100));
         const widthPct = Math.min(100 - leftPct, Math.max(1.2, ((rec.end - rec.start) / 86400000) * 100));
         return `<div title="${escapeHtml(`${rec.label} (~${formatClockHHMM(rec.start)})`)}" class="absolute top-0.5 bottom-0.5 rounded-sm bg-transparent border border-dashed border-rose-500/90 dark:border-rose-400/90 z-[8]" style="left:${leftPct.toFixed(2)}%; width:${widthPct.toFixed(2)}%; min-width:5px;"></div>`;
-      }).join('');
+      }).join('') : '';
       rowRecsHtml = rowSleepRecs + rowFeedRecs;
     }
 
-    const daySleepMin = daySummary.sleepMin;
-
+    const rowStatText = getRowFilterSummaryLabel(daySummary, filterKey);
     const isTodayRow = i === 0;
     rows.push(`
-      <div class="flex items-center gap-2">
-        <span class="${daysCount === 3 ? 'w-14' : 'w-11'} text-[11px] ${isTodayRow ? 'font-extrabold text-rose-500 dark:text-rose-400' : 'font-semibold text-slate-500 dark:text-slate-400'} shrink-0 truncate">${label}</span>
+      <button type="button" onclick="openRhythmDayDetail('${dayIso}')" title="Открыть увеличенный график и статистику за ${dateStr}" class="w-full flex items-center gap-2 py-0.5 px-1.5 -mx-1.5 rounded-xl hover:bg-warmgray/80 dark:hover:bg-slate-800/70 active:scale-[0.995] transition text-left cursor-pointer group">
+        <span class="${daysCount === 3 ? 'w-14' : 'w-11'} text-[11px] ${isTodayRow ? 'font-extrabold text-rose-500 dark:text-rose-400' : 'font-semibold text-slate-500 dark:text-slate-400 group-hover:text-slate-800 dark:group-hover:text-slate-200'} shrink-0 truncate">${label}</span>
         <div class="relative flex-1 ${rowHeightCls} rounded-lg ${isTodayRow ? 'bg-rose-50/70 dark:bg-slate-800 ring-1 ring-rose-200/80 dark:ring-rose-900/60' : 'bg-warmgray dark:bg-slate-800'} overflow-hidden">
           ${segments.join('')}
           ${rowRecsHtml}
           <div class="pointer-events-none absolute top-0 bottom-0 border-l border-dashed border-rose-400/70 dark:border-rose-400/50 z-10" style="left:${nowPct.toFixed(2)}%"></div>
         </div>
-        ${daysCount === 3 ? `<span class="hidden sm:inline-block w-14 text-right text-[10px] font-semibold text-slate-400 shrink-0 tabular-nums">${daySleepMin > 0 ? formatMinutesHuman(daySleepMin) : '—'}</span>` : ''}
-      </div>
+        <span class="hidden sm:inline-block w-14 text-right text-[10px] font-semibold text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-200 shrink-0 tabular-nums">${escapeHtml(rowStatText)}</span>
+        <svg class="w-3.5 h-3.5 text-slate-300 dark:text-slate-600 group-hover:text-rose-500 shrink-0 transition" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+      </button>
     `);
   }
 
-  const labelPadCls = daysCount === 3 ? 'pl-16 sm:pr-16' : 'pl-[52px]';
-  const compareTitle = daysCount === 3 ? 'Сравнение за 3 дня' : daysCount === 7 ? 'Сравнение за 7 дней' : 'Сравнение за 14 дней';
+  const labelPadCls = daysCount === 3 ? 'pl-16 pr-5 sm:pr-[84px]' : 'pl-[52px] pr-5 sm:pr-[84px]';
+  const activeFilterObj = RHYTHM_FILTER_OPTIONS.find(o => o.key === filterKey) || RHYTHM_FILTER_OPTIONS[0];
+  const compareTitle = `${daysCount === 3 ? 'Сравнение за 3 дня' : daysCount === 7 ? 'Сравнение за 7 дней' : 'Сравнение за 14 дней'}${filterKey !== 'all' ? ` • ${activeFilterObj.label}` : ''}`;
+
+  const planLegendHtml = (showSleepRecs || showFeedRecs) ? `
+    <div class="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1 text-[11px] text-slate-500 dark:text-slate-400">
+      ${showSleepRecs ? '<span class="inline-flex items-center gap-1.5"><span class="w-3 h-2.5 rounded-sm border border-dashed border-indigo-500 bg-transparent"></span>План сна</span>' : ''}
+      ${showFeedRecs ? '<span class="inline-flex items-center gap-1.5"><span class="w-3 h-2.5 rounded-sm border border-dashed border-rose-500 bg-transparent"></span>План кормления</span>' : ''}
+      <span class="text-[10px] text-slate-400 sm:ml-auto">Нажмите на любой день для увеличения и подробной статистики</span>
+    </div>
+  ` : `
+    <div class="pt-1 text-[10px] text-slate-400">Нажмите на любой день для увеличения графика и подробной статистики</div>
+  `;
 
   wrap.innerHTML = `
     <div class="space-y-3">
+      ${filterBarHtml}
       ${todayHeroHtml}
       <div class="space-y-1.5">
-        <div class="flex items-center justify-between">
-          <span class="text-[11px] font-bold text-slate-500 dark:text-slate-400">${compareTitle}</span>
-          <span class="text-[10px] text-slate-400">Пунктир — текущее время (${formatClockHHMM(now)})</span>
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-[11px] font-bold text-slate-500 dark:text-slate-400">${escapeHtml(compareTitle)}</span>
+          <span class="text-[10px] text-slate-400">Пунктир — сейчас (${formatClockHHMM(now)})</span>
         </div>
         <div class="flex items-center justify-between ${labelPadCls} text-[10px] font-semibold text-slate-400 tabular-nums">
           <span>00:00</span>
@@ -1854,19 +1969,627 @@ export function renderRhythmAnalytics() {
           <span>18:00</span>
           <span>24:00</span>
         </div>
-        ${rows.join('')}
+        <div class="space-y-1">
+          ${rows.join('')}
+        </div>
       </div>
-      <div class="flex flex-wrap items-center gap-x-3 gap-y-1.5 pt-1 text-[11px] text-slate-500 dark:text-slate-400">
-        <span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-indigo-500"></span>Сон</span>
-        <span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-amber-400"></span>Бодрствование</span>
-        <span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-rose-500"></span>Кормление / прикорм</span>
-        <span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-emerald-500"></span>Прогулка</span>
-        <span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-sky-400"></span>Уход</span>
-        <span class="inline-flex items-center gap-1.5"><span class="w-3 h-2.5 rounded-sm border border-dashed border-indigo-500 bg-transparent"></span>План сна</span>
-        <span class="inline-flex items-center gap-1.5"><span class="w-3 h-2.5 rounded-sm border border-dashed border-rose-500 bg-transparent"></span>План кормления</span>
+      ${planLegendHtml}
+    </div>
+  `;
+}
+
+// =========================================================================
+// ПОДРОБНЫЙ ПРОСМОТР И УВЕЛИЧЕННЫЙ ГРАФИК ВЫБРАННОГО ДНЯ
+// =========================================================================
+export function computeRhythmDayDetailStats(appState, dateIso, now = Date.now()) {
+  const todayIso = getTodayIso();
+  const targetIso = dateIso && /^\d{4}-\d{2}-\d{2}$/.test(dateIso) ? dateIso : todayIso;
+  const { startMs: dayStart, endMs: dayEnd } = parseIsoToLocalDayBounds(targetIso);
+  const isToday = targetIso === todayIso;
+  const summary = computeDaySummaryMetrics(appState, dayStart, dayEnd, isToday, now);
+  const norms = getAgeSleepAndFeedNorms();
+  const ageInfo = calculateBabyAge(appState?.babyDob);
+
+  // Разделяем сон на дневной и ночной
+  let daySleepMin = 0;
+  let nightSleepMin = 0;
+  let dayNapCount = 0;
+  let nightSleepCount = 0;
+  let longestSleepMin = 0;
+  let morningWakeTs = null;
+  let eveningBedtimeTs = null;
+
+  for (const s of summary.sleepItems) {
+    if (s.durMin > longestSleepMin) longestSleepMin = s.durMin;
+    const stDate = new Date(s.origStart || s.start);
+    const stMin = stDate.getHours() * 60 + stDate.getMinutes();
+    const isNight = s.sleepType === 'night' || (
+      s.sleepType !== 'day' && (stMin >= 19 * 60 + 30 || stMin < 6 * 60 + 30 || s.durMin >= 180)
+    );
+    if (isNight) {
+      nightSleepMin += s.durMin;
+      nightSleepCount += 1;
+      // Утреннее пробуждение — окончание ночного сна между 04:30 и 11:30
+      if (!s.isLive && s.end > dayStart && s.end < dayEnd) {
+        const endDate = new Date(s.end);
+        const endMin = endDate.getHours() * 60 + endDate.getMinutes();
+        if (endMin >= 4 * 60 + 30 && endMin <= 11 * 60 + 30) {
+          if (!morningWakeTs || s.end > morningWakeTs) morningWakeTs = s.end;
+        }
+      }
+      // Вечернее укладывание — старт ночного сна между 18:00 и 23:59
+      if (s.start >= dayStart && s.start < dayEnd) {
+        const curStDate = new Date(s.start);
+        const curStMin = curStDate.getHours() * 60 + curStDate.getMinutes();
+        if (curStMin >= 18 * 60) {
+          if (!eveningBedtimeTs || s.start < eveningBedtimeTs) eveningBedtimeTs = s.start;
+        }
+      }
+    } else {
+      daySleepMin += s.durMin;
+      dayNapCount += 1;
+    }
+  }
+
+  // Окна бодрствования между снами внутри дня
+  const wakeWindowsMin = [];
+  const sortedSleeps = [...summary.sleepItems].sort((a, b) => a.start - b.start);
+  for (let i = 1; i < sortedSleeps.length; i++) {
+    const gapMin = Math.round((sortedSleeps[i].start - sortedSleeps[i - 1].end) / 60000);
+    if (gapMin >= 15 && gapMin <= 600) {
+      wakeWindowsMin.push(gapMin);
+    }
+  }
+  const longestWakeWindowMin = wakeWindowsMin.length > 0 ? Math.max(...wakeWindowsMin) : null;
+  const avgWakeWindowMin = wakeWindowsMin.length > 0
+    ? Math.round(wakeWindowsMin.reduce((a, b) => a + b, 0) / wakeWindowsMin.length)
+    : null;
+
+  // Средний интервал между кормлениями
+  const feedGapsMin = [];
+  for (let i = 1; i < summary.feedItems.length; i++) {
+    const gapMin = Math.round((summary.feedItems[i].start - summary.feedItems[i - 1].start) / 60000);
+    if (gapMin >= 15 && gapMin <= 720) {
+      feedGapsMin.push(gapMin);
+    }
+  }
+  const avgFeedIntervalMin = feedGapsMin.length > 0
+    ? Math.round(feedGapsMin.reduce((a, b) => a + b, 0) / feedGapsMin.length)
+    : null;
+
+  // Прогулки и уход
+  const walkEvents = summary.dayEvents.filter(ev => ev.type === 'walk');
+  const walkCount = walkEvents.length;
+  const walkMin = Math.round(walkEvents.reduce((acc, ev) => acc + Math.max(0, ev.end - ev.start), 0) / 60000);
+  const bathCount = summary.dayEvents.filter(ev => ev.type === 'bath').length;
+  const vitaminCount = summary.dayEvents.filter(ev => ev.type === 'vitamin').length;
+  const careCount = summary.dayEvents.filter(ev => getEventRhythmCategory(ev) === 'care').length;
+
+  const sleepNormTargetMin = norms.dailySleepTargetMin || 840;
+  const sleepNormPct = Math.round((summary.sleepMin / sleepNormTargetMin) * 100);
+
+  // Полезные выводы и подсказки по дню
+  const insights = [];
+  if (summary.sleepMin === 0) {
+    insights.push({
+      tone: 'slate',
+      title: 'Сон не отмечен',
+      text: 'За этот день нет записей сна. Добавьте сон вручную или запускайте таймер, чтобы видеть сравнение с возрастной нормой.'
+    });
+  } else if (isToday) {
+    const remMin = Math.max(0, sleepNormTargetMin - summary.sleepMin);
+    if (remMin > 30) {
+      insights.push({
+        tone: 'indigo',
+        title: `Сон за сегодня: ${sleepNormPct}% от возрастной нормы`,
+        text: `Сейчас набрано ${formatMinutesHuman(summary.sleepMin)} сна при ориентире ${norms.dailySleepLabel}. До суточной цели осталось ~${formatMinutesHuman(remMin)}.`
+      });
+    } else {
+      insights.push({
+        tone: 'emerald',
+        title: 'Отличный баланс сна за сегодня',
+        text: `Набрано ${formatMinutesHuman(summary.sleepMin)} сна — уже в рамках возрастного ориентира (${norms.dailySleepLabel}).`
+      });
+    }
+  } else {
+    const diffMin = summary.sleepMin - sleepNormTargetMin;
+    if (diffMin >= -60 && diffMin <= 90) {
+      insights.push({
+        tone: 'emerald',
+        title: 'Сон соответствует возрасту',
+        text: `За день набрано ${formatMinutesHuman(summary.sleepMin)} сна (${sleepNormPct}% от ориентира ${norms.dailySleepLabel}).${dayNapCount > 0 ? ` Дневных снов: ${dayNapCount} (${formatMinutesHuman(daySleepMin)}).` : ''}`
+      });
+    } else if (diffMin < -60) {
+      insights.push({
+        tone: 'amber',
+        title: `Сна меньше нормы на ${formatMinutesHuman(Math.abs(diffMin))}`,
+        text: `Вышло ${formatMinutesHuman(summary.sleepMin)} при ориентире ${norms.dailySleepLabel}. На следующий день полезно уложить малыша на 20–30 минут раньше, чтобы компенсировать усталость.`
+      });
+    } else {
+      insights.push({
+        tone: 'indigo',
+        title: 'Повышенная потребность во сне',
+        text: `За сутки набрано ${formatMinutesHuman(summary.sleepMin)} (+${formatMinutesHuman(diffMin)} к среднему ориентиру). Часто так бывает в скачок роста или после активного дня.`
+      });
+    }
+  }
+
+  if (longestWakeWindowMin !== null) {
+    if (longestWakeWindowMin >= norms.wakeWindowMin + 35) {
+      insights.push({
+        tone: 'amber',
+        title: 'Длинное окно бодрствования',
+        text: `Самый долгий промежуток между снами составил ${formatMinutesHuman(longestWakeWindowMin)} при возрастном ориентире ~${formatMinutesHuman(norms.wakeWindowMin)}. Более раннее укладывание по первым признакам усталости помогает избежать перегула.`
+      });
+    } else {
+      insights.push({
+        tone: 'emerald',
+        title: 'Комфортные окна бодрствования',
+        text: `Среднее окно между снами — ${formatMinutesHuman(avgWakeWindowMin)}, максимум ${formatMinutesHuman(longestWakeWindowMin)} (ориентир возраста ~${formatMinutesHuman(norms.wakeWindowMin)}).`
+      });
+    }
+  }
+
+  if (summary.feedCount > 0) {
+    const parts = [];
+    if (summary.feedBreakdown.breast > 0) parts.push(`грудь: ${summary.feedBreakdown.breast}`);
+    if (summary.feedBreakdown.bottle > 0) {
+      parts.push(`бутылочка: ${summary.feedBreakdown.bottle}${summary.feedBreakdown.totalMl > 0 ? ` (${summary.feedBreakdown.totalMl} мл)` : ''}`);
+    }
+    if (summary.feedBreakdown.solids > 0) parts.push(`прикорм: ${summary.feedBreakdown.solids}`);
+    const intervalSentence = avgFeedIntervalMin
+      ? ` Средний интервал между кормлениями — ${formatMinutesHuman(avgFeedIntervalMin)} (ориентир: ~${formatMinutesHuman(norms.feedIntervalMin)}).`
+      : '';
+    insights.push({
+      tone: 'rose',
+      title: `Кормлений за день: ${summary.feedCount}`,
+      text: `${parts.length > 0 ? `Состав: ${parts.join(', ')}.` : ''}${intervalSentence}`.trim()
+    });
+  }
+
+  if (walkMin > 0 || summary.diaperCount > 0) {
+    const bits = [];
+    if (walkMin > 0) bits.push(`прогулка ${formatMinutesHuman(walkMin)} (${walkCount} раз)`);
+    if (summary.diaperCount > 0) bits.push(`подгузники: ${summary.diaperBreakdown.wet} мокр., ${summary.diaperBreakdown.dirty} грязн.`);
+    if (bathCount > 0) bits.push(`купание (${bathCount})`);
+    if (vitaminCount > 0) bits.push('витамин D3');
+    insights.push({
+      tone: 'sky',
+      title: 'Прогулки и уход',
+      text: `За день отмечено: ${bits.join(' • ')}.`
+    });
+  }
+
+  return {
+    dateIso: targetIso,
+    dayStart,
+    dayEnd,
+    isToday,
+    summary,
+    norms,
+    ageInfo,
+    daySleepMin,
+    nightSleepMin,
+    dayNapCount,
+    nightSleepCount,
+    longestSleepMin,
+    morningWakeTs,
+    eveningBedtimeTs,
+    longestWakeWindowMin,
+    avgWakeWindowMin,
+    avgFeedIntervalMin,
+    walkCount,
+    walkMin,
+    bathCount,
+    vitaminCount,
+    careCount,
+    sleepNormTargetMin,
+    sleepNormPct,
+    insights
+  };
+}
+
+export function openRhythmDayDetail(dateIso = '', initialFilter = null) {
+  const todayIso = getTodayIso();
+  const targetIso = dateIso && /^\d{4}-\d{2}-\d{2}$/.test(dateIso) ? dateIso : todayIso;
+  rhythmDayDetailState.dateIso = targetIso;
+  rhythmDayDetailState.filter = initialFilter && RHYTHM_FILTER_OPTIONS.some(o => o.key === initialFilter)
+    ? initialFilter
+    : activeRhythmFilter;
+  if (![1, 2, 3].includes(rhythmDayDetailState.zoom)) {
+    rhythmDayDetailState.zoom = 2;
+  }
+  renderRhythmDayDetailModal({ autoScrollTimeline: true });
+  openModal('modal-rhythm-day-detail');
+}
+
+export function setRhythmDayModalFilter(filterKey = 'all') {
+  const valid = RHYTHM_FILTER_OPTIONS.some(opt => opt.key === filterKey);
+  rhythmDayDetailState.filter = valid ? filterKey : 'all';
+  renderRhythmDayDetailModal({ autoScrollTimeline: false });
+}
+
+export function setRhythmDayZoom(zoomLevel = 2) {
+  const z = Number(zoomLevel);
+  rhythmDayDetailState.zoom = z === 1 ? 1 : z === 3 ? 3 : 2;
+  renderRhythmDayDetailModal({ autoScrollTimeline: true });
+}
+
+export function shiftRhythmDayDetail(deltaDays) {
+  const baseIso = rhythmDayDetailState.dateIso || getTodayIso();
+  const { startMs } = parseIsoToLocalDayBounds(baseIso);
+  const nextDate = new Date(startMs + Number(deltaDays || 0) * 86400000);
+  const nextIso = `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, '0')}-${String(nextDate.getDate()).padStart(2, '0')}`;
+  const todayIso = getTodayIso();
+  if (nextIso > todayIso) return;
+  rhythmDayDetailState.dateIso = nextIso;
+  renderRhythmDayDetailModal({ autoScrollTimeline: true });
+}
+
+export function jumpToJournalDayFromRhythm(dateIso) {
+  const targetIso = dateIso && /^\d{4}-\d{2}-\d{2}$/.test(dateIso) ? dateIso : getTodayIso();
+  store.selectedJournalDateIso = targetIso;
+  closeModal('modal-rhythm-day-detail');
+  renderJournalTab();
+  const listEl = document.getElementById('journal-day-title');
+  if (listEl && typeof listEl.scrollIntoView === 'function') {
+    listEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+}
+
+function renderRhythmDayDetailModal({ autoScrollTimeline = false } = {}) {
+  const body = document.getElementById('rhythm-day-detail-body');
+  const titleEl = document.getElementById('rhythm-day-detail-title');
+  const subtitleEl = document.getElementById('rhythm-day-detail-subtitle');
+  const nextBtn = document.getElementById('rhythm-day-detail-next-btn');
+  if (!body) return;
+
+  const now = Date.now();
+  const stats = computeRhythmDayDetailStats(store.appState, rhythmDayDetailState.dateIso, now);
+  const {
+    dateIso,
+    dayStart,
+    dayEnd,
+    isToday,
+    summary,
+    norms,
+    ageInfo,
+    daySleepMin,
+    nightSleepMin,
+    dayNapCount,
+    longestSleepMin,
+    morningWakeTs,
+    eveningBedtimeTs,
+    longestWakeWindowMin,
+    avgWakeWindowMin,
+    avgFeedIntervalMin,
+    walkCount,
+    walkMin,
+    bathCount,
+    vitaminCount,
+    sleepNormPct,
+    insights
+  } = stats;
+
+  const dayDate = new Date(dayStart);
+  const fullWeekdays = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
+  const headerDayStr = isToday
+    ? `Сегодня, ${formatDateRu(dateIso)}`
+    : `${fullWeekdays[dayDate.getDay()]}, ${formatDateRu(dateIso)}`;
+
+  if (titleEl) titleEl.textContent = headerDayStr;
+  if (subtitleEl) {
+    const windowStr = isToday ? `00:00–${formatClockHHMM(now)}` : '00:00–24:00';
+    subtitleEl.textContent = `Возраст: ${ageInfo.humanText} • интервал ${windowStr}`;
+  }
+  if (nextBtn) {
+    nextBtn.disabled = isToday;
+  }
+
+  const filterKey = rhythmDayDetailState.filter;
+  const zoom = rhythmDayDetailState.zoom;
+  const filteredEvents = summary.dayEvents.filter(ev => matchesRhythmFilter(ev, filterKey));
+  const showSleepRecs = isToday && (filterKey === 'all' || filterKey === 'sleep');
+  const showFeedRecs = isToday && (filterKey === 'all' || filterKey === 'feeding');
+  const recs = isToday ? computeTodayRhythmRecommendations(store.appState, now, dayStart, dayEnd) : { sleepRecs: [], feedRecs: [] };
+  const nowPct = isToday ? Math.max(0, Math.min(100, ((now - dayStart) / 86400000) * 100)) : null;
+
+  // Ширина увеличенного графика
+  const canvasWidthStyle = zoom === 1 ? 'width:100%;' : zoom === 2 ? 'min-width:960px; width:200%;' : 'min-width:1440px; width:300%;';
+  const hourStep = zoom === 1 ? 3 : 1;
+  const axisHours = [];
+  for (let h = 0; h <= 24; h += hourStep) axisHours.push(h);
+
+  const gridLinesHtml = [];
+  const totalGridSteps = zoom === 3 ? 48 : 24;
+  for (let step = 1; step < totalGridSteps; step++) {
+    const leftPct = (step / totalGridSteps) * 100;
+    const isHalfHour = zoom === 3 && step % 2 === 1;
+    const hourVal = zoom === 3 ? step / 2 : step;
+    const isMajor = !isHalfHour && hourVal % 3 === 0;
+    const cls = isMajor
+      ? 'border-stone-300/90 dark:border-slate-600/90'
+      : isHalfHour
+        ? 'border-stone-200/45 dark:border-slate-800/70 border-dotted'
+        : 'border-stone-200/70 dark:border-slate-700/60 border-dashed';
+    gridLinesHtml.push(`<div class="pointer-events-none absolute top-0 bottom-0 border-l ${cls}" style="left:${leftPct.toFixed(3)}%"></div>`);
+  }
+
+  const axisLabelsHtml = axisHours.map(h => {
+    const leftPct = (h / 24) * 100;
+    const translateCls = h === 0 ? 'translate-x-0' : h === 24 ? '-translate-x-full' : '-translate-x-1/2';
+    return `<span class="absolute top-0 ${translateCls} text-[10px] font-semibold text-slate-400 tabular-nums whitespace-nowrap" style="left:${leftPct.toFixed(3)}%">${String(h).padStart(2, '0')}:00</span>`;
+  }).join('');
+
+  const minLabelWidthPct = zoom === 1 ? 6.5 : zoom === 2 ? 2.6 : 1.5;
+  const zoomedSegmentsHtml = filteredEvents.map(ev => {
+    const minPct = zoom === 3 ? 0.25 : zoom === 2 ? 0.35 : 0.6;
+    const { leftPct, widthPct } = calcRhythmSegmentLayout(ev, dayStart, minPct);
+    const color = getRhythmSegmentColor(ev.type, ev.isDerivedAwake);
+    const timeRange = `${formatClockHHMM(ev.start)}–${formatClockHHMM(ev.end)}`;
+    const durMin = Math.round(ev.durMs / 60000);
+    const tooltip = `${ev.title} (${timeRange})`;
+    const canShowRichLabel = !ev.isDerivedAwake && widthPct >= minLabelWidthPct && durMin >= (zoom === 3 ? 8 : zoom === 2 ? 12 : 25);
+    const canShowShortDur = !ev.isDerivedAwake && !canShowRichLabel && widthPct >= (minLabelWidthPct * 0.65) && durMin >= 10;
+    let innerHtml = '';
+    if (canShowRichLabel) {
+      innerHtml = `
+        <div class="px-1.5 text-center leading-tight overflow-hidden">
+          <div class="text-[10px] font-extrabold text-white truncate">${formatMinutesHuman(durMin)}</div>
+          <div class="text-[9px] font-semibold text-white/85 truncate tabular-nums">${formatClockHHMM(ev.start)}</div>
+        </div>
+      `;
+    } else if (canShowShortDur) {
+      innerHtml = `<span class="px-1 text-[9px] font-bold text-white truncate">${durMin}м</span>`;
+    }
+    const liveCls = ev.isLive && !ev.isDerivedAwake ? 'animate-pulse ring-2 ring-white/80' : '';
+    const clickAttr = ev.id ? `onclick="closeModal('modal-rhythm-day-detail'); openEditJournalLogModal('${escapeHtml(ev.id)}')"` : '';
+    const cursorCls = ev.id ? 'cursor-pointer hover:brightness-110' : '';
+    const borderCls = ev.isDerivedAwake ? '' : 'border border-white/40 dark:border-slate-900/40 shadow-2xs';
+    return `<div ${clickAttr} title="${escapeHtml(tooltip)}" class="absolute top-1.5 bottom-1.5 rounded-lg ${color} ${liveCls} ${cursorCls} ${borderCls} flex items-center justify-center overflow-hidden transition" style="left:${leftPct.toFixed(3)}%; width:${widthPct.toFixed(3)}%; min-width:${ev.isDerivedAwake ? 2 : 5}px;">${innerHtml}</div>`;
+  }).join('');
+
+  const modalRecSleepHtml = showSleepRecs ? recs.sleepRecs.map(rec => {
+    const leftPct = Math.max(0, Math.min(100, ((rec.start - dayStart) / 86400000) * 100));
+    const widthPct = Math.min(100 - leftPct, Math.max(2, ((rec.end - rec.start) / 86400000) * 100));
+    const tooltip = `${rec.label} (~${formatClockHHMM(rec.start)}) • ${rec.detail}`;
+    return `<div title="${escapeHtml(tooltip)}" class="pointer-events-auto absolute top-1.5 bottom-1.5 rounded-lg bg-transparent border-2 border-dashed border-indigo-500/90 dark:border-indigo-400/90 flex items-center justify-center overflow-hidden z-[7]" style="left:${leftPct.toFixed(3)}%; width:${widthPct.toFixed(3)}%"><span class="px-1 text-[10px] font-bold text-indigo-600 dark:text-indigo-300 truncate">${formatClockHHMM(rec.start)}</span></div>`;
+  }).join('') : '';
+
+  const modalRecFeedHtml = showFeedRecs ? recs.feedRecs.map(rec => {
+    const leftPct = Math.max(0, Math.min(100, ((rec.start - dayStart) / 86400000) * 100));
+    const widthPct = Math.min(100 - leftPct, Math.max(1.2, ((rec.end - rec.start) / 86400000) * 100));
+    const tooltip = `${rec.label} (~${formatClockHHMM(rec.start)}) • ${rec.detail}`;
+    return `<div title="${escapeHtml(tooltip)}" class="pointer-events-auto absolute top-1.5 bottom-1.5 rounded-lg bg-transparent border-2 border-dashed border-rose-500/90 dark:border-rose-400/90 z-[8]" style="left:${leftPct.toFixed(3)}%; width:${widthPct.toFixed(3)}%; min-width:8px;"></div>`;
+  }).join('') : '';
+
+  // Фильтры + масштаб внутри модального окна
+  const modalControlsHtml = `
+    <div class="flex flex-wrap items-center justify-between gap-2">
+      <div class="flex items-center gap-1 overflow-x-auto no-scrollbar pb-0.5 max-w-full">
+        ${RHYTHM_FILTER_OPTIONS.map(opt => {
+          const isActive = opt.key === filterKey;
+          const cls = isActive
+            ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 border-slate-900 dark:border-slate-100'
+            : 'bg-warmgray/80 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-stone-200/70 dark:border-slate-700 hover:bg-stone-200/70 dark:hover:bg-slate-700';
+          return `
+            <button type="button" onclick="setRhythmDayModalFilter('${opt.key}')" class="inline-flex items-center gap-1 px-2 py-1 rounded-xl border text-[11px] font-bold shrink-0 transition cursor-pointer ${cls}">
+              <span class="w-2 h-2 rounded-sm ${opt.dotCls}"></span>
+              <span>${opt.label}</span>
+            </button>
+          `;
+        }).join('')}
+      </div>
+      <div class="flex items-center gap-1 bg-warmgray dark:bg-slate-800 p-1 rounded-xl shrink-0">
+        ${[1, 2, 3].map(z => `
+          <button type="button" onclick="setRhythmDayZoom(${z})" class="px-2 py-0.5 rounded-lg text-[11px] font-bold transition cursor-pointer ${zoom === z ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-2xs' : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'}">${z}×</button>
+        `).join('')}
       </div>
     </div>
   `;
+
+  // Блок увеличенного графика
+  const zoomedChartHtml = `
+    <div class="p-3 sm:p-3.5 rounded-2xl bg-warmgray/60 dark:bg-slate-800/60 border border-stone-200/70 dark:border-slate-700/70 space-y-2.5">
+      ${modalControlsHtml}
+      <div id="rhythm-day-zoom-scroll" class="overflow-x-auto pb-1.5">
+        <div class="space-y-1.5" style="${canvasWidthStyle}">
+          <div class="relative h-4 select-none">
+            ${axisLabelsHtml}
+          </div>
+          <div class="relative h-16 sm:h-20 rounded-xl bg-white dark:bg-slate-900 border border-stone-200/80 dark:border-slate-700 overflow-hidden">
+            ${gridLinesHtml.join('')}
+            ${zoomedSegmentsHtml}
+            ${modalRecSleepHtml}
+            ${modalRecFeedHtml}
+            ${filteredEvents.length === 0 ? '<div class="absolute inset-0 flex items-center justify-center text-xs font-medium text-slate-400">Нет событий в выбранной категории</div>' : ''}
+            ${nowPct !== null ? `<div title="Текущее время: ${formatClockHHMM(now)}" class="pointer-events-none absolute top-0 bottom-0 w-0.5 bg-rose-500 z-10" style="left:${nowPct.toFixed(3)}%"><span class="absolute -top-0.5 -left-[3px] w-2 h-2 rounded-full bg-rose-500"></span></div>` : ''}
+          </div>
+        </div>
+      </div>
+      <div class="flex flex-wrap items-center justify-between gap-2 text-[10px] text-slate-400">
+        <span>${zoom > 1 ? 'Листайте шкалу влево и вправо, чтобы рассмотреть часы крупнее' : 'Показаны полные сутки 00:00–24:00 (выберите 2× или 3× для увеличения)'}</span>
+        <span>Нажмите на отрезок, чтобы изменить запись</span>
+      </div>
+    </div>
+  `;
+
+  // 4 карточки ключевой статистики дня
+  const sleepPctBar = Math.min(100, Math.max(0, sleepNormPct));
+  const sleepBarTone = sleepNormPct >= 90 ? 'bg-emerald-500' : sleepNormPct >= 75 ? 'bg-indigo-500' : 'bg-amber-500';
+  const feedDetailsParts = [];
+  if (summary.feedBreakdown.breast > 0) feedDetailsParts.push(`грудь ${summary.feedBreakdown.breast}`);
+  if (summary.feedBreakdown.bottle > 0) feedDetailsParts.push(`бут. ${summary.feedBreakdown.bottle}${summary.feedBreakdown.totalMl > 0 ? ` (${summary.feedBreakdown.totalMl} мл)` : ''}`);
+  if (summary.feedBreakdown.solids > 0) feedDetailsParts.push(`прикорм ${summary.feedBreakdown.solids}`);
+
+  const statsGridHtml = `
+    <div class="grid grid-cols-2 gap-2.5">
+      <div class="p-3 rounded-2xl bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-200/60 dark:border-indigo-900/50 space-y-1.5">
+        <div class="flex items-center justify-between gap-1">
+          <span class="text-[11px] font-bold text-indigo-700 dark:text-indigo-300">Сон за день</span>
+          <span class="text-[10px] font-bold text-indigo-600/80 dark:text-indigo-300/80 tabular-nums">${sleepNormPct}% нормы</span>
+        </div>
+        <div class="font-display font-extrabold text-lg sm:text-xl text-slate-900 dark:text-slate-100 tabular-nums leading-tight">${formatMinutesHuman(summary.sleepMin)}</div>
+        <div class="w-full h-1.5 rounded-full bg-indigo-100 dark:bg-indigo-950 overflow-hidden">
+          <div class="h-full rounded-full ${sleepBarTone}" style="width:${sleepPctBar}%"></div>
+        </div>
+        <div class="text-[10px] text-slate-600 dark:text-slate-300 leading-snug">
+          Дневн.: <strong>${formatMinutesHuman(daySleepMin)}</strong> (${dayNapCount}) • Ночн.: <strong>${formatMinutesHuman(nightSleepMin)}</strong>
+        </div>
+      </div>
+
+      <div class="p-3 rounded-2xl bg-rose-50/70 dark:bg-rose-950/30 border border-rose-200/60 dark:border-rose-900/50 space-y-1.5">
+        <div class="flex items-center justify-between gap-1">
+          <span class="text-[11px] font-bold text-rose-700 dark:text-rose-300">Кормления</span>
+          ${avgFeedIntervalMin ? `<span class="text-[10px] font-bold text-rose-600/80 dark:text-rose-300/80 tabular-nums">~${formatMinutesHuman(avgFeedIntervalMin)}</span>` : ''}
+        </div>
+        <div class="font-display font-extrabold text-lg sm:text-xl text-slate-900 dark:text-slate-100 tabular-nums leading-tight">${summary.feedCount} раз</div>
+        <div class="text-[10px] text-slate-600 dark:text-slate-300 leading-snug">
+          ${feedDetailsParts.length > 0 ? escapeHtml(feedDetailsParts.join(' • ')) : 'Записей кормлений нет'}
+        </div>
+      </div>
+
+      <div class="p-3 rounded-2xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-900/50 space-y-1">
+        <div class="text-[11px] font-bold text-amber-800 dark:text-amber-300">Бодрствование</div>
+        <div class="font-display font-extrabold text-lg sm:text-xl text-slate-900 dark:text-slate-100 tabular-nums leading-tight">${formatMinutesHuman(summary.awakeMin)}</div>
+        <div class="text-[10px] text-slate-600 dark:text-slate-300 leading-snug">
+          ${longestWakeWindowMin !== null
+            ? `Макс. окно: <strong>${formatMinutesHuman(longestWakeWindowMin)}</strong> (норма ~${formatMinutesHuman(norms.wakeWindowMin)})`
+            : `Возрастное окно: ~${formatMinutesHuman(norms.wakeWindowMin)}`}
+        </div>
+      </div>
+
+      <div class="p-3 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-900/50 space-y-1">
+        <div class="text-[11px] font-bold text-emerald-700 dark:text-emerald-300">Прогулки и уход</div>
+        <div class="font-display font-extrabold text-lg sm:text-xl text-slate-900 dark:text-slate-100 tabular-nums leading-tight">${walkMin > 0 ? formatMinutesHuman(walkMin) : `${summary.diaperCount} подг.`}</div>
+        <div class="text-[10px] text-slate-600 dark:text-slate-300 leading-snug">
+          ${walkCount > 0 ? `Прогулок: ${walkCount} • ` : ''}Подгузн.: ${summary.diaperBreakdown.wet} мокр. / ${summary.diaperBreakdown.dirty} грязн.${bathCount > 0 ? ' • купание' : ''}${vitaminCount > 0 ? ' • D3' : ''}
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Якоря режима дня (подъём, самый длинный сон, отход ко сну)
+  const anchors = [];
+  if (morningWakeTs) anchors.push({ label: 'Подъём', val: formatClockHHMM(morningWakeTs) });
+  if (longestSleepMin > 0) anchors.push({ label: 'Макс. сон', val: formatMinutesHuman(longestSleepMin) });
+  if (avgWakeWindowMin !== null) anchors.push({ label: 'Средн. окно', val: formatMinutesHuman(avgWakeWindowMin) });
+  if (eveningBedtimeTs) anchors.push({ label: 'На ночь', val: formatClockHHMM(eveningBedtimeTs) });
+
+  const anchorsHtml = anchors.length > 0 ? `
+    <div class="flex flex-wrap items-center gap-1.5">
+      ${anchors.map(a => `
+        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-warmgray/80 dark:bg-slate-800 border border-stone-200/70 dark:border-slate-700 text-[11px] text-slate-600 dark:text-slate-300">
+          <span>${escapeHtml(a.label)}:</span>
+          <strong class="text-slate-900 dark:text-slate-100 tabular-nums">${escapeHtml(a.val)}</strong>
+        </span>
+      `).join('')}
+    </div>
+  ` : '';
+
+  // Полезные выводы и подсказки по дню
+  const insightToneMap = {
+    emerald: 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-200/70 dark:border-emerald-800/60 text-emerald-900 dark:text-emerald-200',
+    amber: 'bg-amber-50/70 dark:bg-amber-950/30 border-amber-200/70 dark:border-amber-800/60 text-amber-900 dark:text-amber-200',
+    indigo: 'bg-indigo-50/70 dark:bg-indigo-950/30 border-indigo-200/70 dark:border-indigo-800/60 text-indigo-900 dark:text-indigo-200',
+    rose: 'bg-rose-50/70 dark:bg-rose-950/30 border-rose-200/70 dark:border-rose-800/60 text-rose-900 dark:text-rose-200',
+    sky: 'bg-sky-50/70 dark:bg-sky-950/30 border-sky-200/70 dark:border-sky-800/60 text-sky-900 dark:text-sky-200',
+    slate: 'bg-warmgray/70 dark:bg-slate-800/70 border-stone-200/70 dark:border-slate-700 text-slate-700 dark:text-slate-200'
+  };
+
+  const insightsHtml = insights.length > 0 ? `
+    <div class="space-y-2">
+      <h4 class="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">Полезная информация по дню</h4>
+      <div class="space-y-1.5">
+        ${insights.map(ins => `
+          <div class="p-2.5 sm:p-3 rounded-2xl border text-xs leading-relaxed ${insightToneMap[ins.tone] || insightToneMap.slate}">
+            <div class="font-bold mb-0.5">${escapeHtml(ins.title)}</div>
+            <div class="text-[11px] opacity-90">${escapeHtml(ins.text)}</div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  ` : '';
+
+  // Хронология событий дня (с учётом активного фильтра)
+  const currentCaregiverNorm = String(getCurrentCaregiverName() || '').trim().toLowerCase();
+  const listEvents = filteredEvents
+    .filter(ev => filterKey === 'awake' ? true : !ev.isDerivedAwake)
+    .sort((a, b) => a.start - b.start || a.end - b.end);
+
+  const eventsListHtml = listEvents.length > 0
+    ? listEvents.map(ev => {
+        const dotCls = getRhythmSegmentColor(ev.type, ev.isDerivedAwake);
+        const durMin = Math.round((ev.end - ev.start) / 60000);
+        const timeText = durMin > 0
+          ? `${formatClockHHMM(ev.start)}–${formatClockHHMM(ev.end)}`
+          : formatClockHHMM(ev.start);
+        const showAuthor = ev.author && ev.author.trim().toLowerCase() !== currentCaregiverNorm;
+        const authorTag = showAuthor
+          ? `<span class="px-1.5 py-0.5 rounded-md bg-stone-200/70 dark:bg-slate-700 text-[10px] font-semibold text-slate-600 dark:text-slate-300">${escapeHtml(ev.author)}</span>`
+          : '';
+        const editBtn = ev.id
+          ? `<button type="button" onclick="closeModal('modal-rhythm-day-detail'); openEditJournalLogModal('${escapeHtml(ev.id)}')" class="text-[10px] font-bold text-indigo-600 dark:text-indigo-300 hover:underline shrink-0">изм.</button>`
+          : '';
+        return `
+          <div class="flex items-center justify-between gap-2 py-2 px-2.5 rounded-xl bg-warmgray/60 dark:bg-slate-800/70 text-xs">
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="w-2.5 h-2.5 rounded-sm shrink-0 ${dotCls}"></span>
+              <div class="min-w-0">
+                <div class="flex items-center gap-1.5 flex-wrap">
+                  <span class="font-semibold text-slate-800 dark:text-slate-100 truncate">${escapeHtml(ev.title)}</span>
+                  ${ev.isLive ? '<span class="px-1.5 py-0.5 rounded-md bg-rose-100 dark:bg-rose-950/60 text-[10px] font-bold text-rose-600 dark:text-rose-300">сейчас</span>' : ''}
+                  ${authorTag}
+                </div>
+                <div class="text-[11px] text-slate-400 tabular-nums">${timeText}${ev.origStart < dayStart || ev.origEnd > dayEnd ? ' (часть суток)' : ''}</div>
+              </div>
+            </div>
+            <div class="flex items-center gap-2 shrink-0">
+              ${durMin > 0 ? `<span class="font-bold tabular-nums text-slate-700 dark:text-slate-200">${formatMinutesHuman(durMin)}</span>` : ''}
+              ${editBtn}
+            </div>
+          </div>
+        `;
+      }).join('')
+    : `<div class="py-3 px-3 rounded-xl bg-warmgray/50 dark:bg-slate-800/50 text-xs text-slate-400 text-center">Нет записей за этот день по выбранному фильтру.</div>`;
+
+  const filterTitleLabel = (RHYTHM_FILTER_OPTIONS.find(o => o.key === filterKey) || RHYTHM_FILTER_OPTIONS[0]).label;
+
+  body.innerHTML = `
+    ${zoomedChartHtml}
+    ${statsGridHtml}
+    ${anchorsHtml}
+    ${insightsHtml}
+    <div class="space-y-2">
+      <div class="flex items-center justify-between gap-2">
+        <h4 class="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">События дня (${escapeHtml(filterTitleLabel)} • ${listEvents.length})</h4>
+        <button type="button" onclick="jumpToJournalDayFromRhythm('${escapeHtml(dateIso)}')" class="text-[11px] font-bold text-rose-500 hover:underline cursor-pointer">
+          Открыть в ленте журнала →
+        </button>
+      </div>
+      <div class="space-y-1.5">
+        ${eventsListHtml}
+      </div>
+    </div>
+  `;
+
+  if (autoScrollTimeline && zoom > 1) {
+    requestAnimationFrame(() => {
+      const scroller = document.getElementById('rhythm-day-zoom-scroll');
+      if (!scroller) return;
+      const maxScroll = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
+      if (maxScroll <= 0) return;
+      let focusPct = 0.28; // по умолчанию около 06:30–07:00 утра
+      if (nowPct !== null) {
+        focusPct = Math.max(0, (nowPct / 100) - 0.18);
+      } else if (filteredEvents.length > 0) {
+        const firstReal = filteredEvents.find(ev => !ev.isDerivedAwake) || filteredEvents[0];
+        const firstPct = Math.max(0, (firstReal.start - dayStart) / 86400000);
+        focusPct = Math.max(0, firstPct - 0.05);
+      }
+      scroller.scrollLeft = Math.round(Math.min(maxScroll, scroller.scrollWidth * focusPct));
+    });
+  }
 }
 
 // Расчёт недельного дайджеста и трендов режима (текущие 7 дней vs предыдущие 7 дней)
@@ -2116,7 +2839,7 @@ function renderWeeklyDigestDetailModal(metric = 'sleep') {
   if (!body) return;
 
   const d = computeWeeklyDigestMetrics(store.appState, Date.now());
-  const ageInfo = calculateBabyAge(store.appState.babyBirthDate);
+  const ageInfo = calculateBabyAge(store.appState.babyDob);
 
   const tabsHtml = `
     <div class="grid grid-cols-3 gap-1.5 bg-warmgray dark:bg-slate-800 p-1 rounded-2xl">
@@ -2171,7 +2894,7 @@ function renderWeeklyDigestDetailModal(metric = 'sleep') {
           <div class="font-display font-extrabold text-2xl text-slate-900 dark:text-slate-100 tabular-nums">${avgStr}</div>
         </div>
         <div class="text-right text-[11px] text-slate-600 dark:text-slate-300 space-y-0.5">
-          <div>Возрастная норма (${escapeHtml(ageInfo.label)}): <span class="font-bold">${escapeHtml(d.norms.dailySleepLabel)}</span></div>
+          <div>Возрастная норма (${escapeHtml(ageInfo.humanText)}): <span class="font-bold">${escapeHtml(d.norms.dailySleepLabel)}</span></div>
           ${prevAvgStr ? `<div>Прошлая неделя: <span class="font-bold">${prevAvgStr}</span></div>` : '<div>Прошлая неделя: недостаточно данных</div>'}
         </div>
       </div>
@@ -2451,7 +3174,7 @@ function renderJournalMetricDetailModal(metric = 'awake', dateIso = '') {
 
   const summary = computeDaySummaryMetrics(store.appState, startMs, endMs, isToday, now);
   const norms = getAgeSleepAndFeedNorms();
-  const ageInfo = calculateBabyAge(store.appState.babyBirthDate);
+  const ageInfo = calculateBabyAge(store.appState.babyDob);
   const dayCaption = isToday ? `Сегодня (${formatDateRu(targetIso)})` : formatDateRu(targetIso);
   const windowCaption = isToday ? `00:00–${formatClockHHMM(now)}` : '00:00–24:00';
 
@@ -2531,7 +3254,7 @@ function renderJournalMetricDetailModal(metric = 'awake', dateIso = '') {
           <div class="font-display font-extrabold text-2xl text-slate-900 dark:text-slate-100 tabular-nums">${awakeTotalStr}</div>
         </div>
         <div class="text-right text-[11px] text-slate-600 dark:text-slate-300 space-y-0.5">
-          <div>Возраст (${escapeHtml(ageInfo.label)}): <span class="font-bold">окно ~${formatMinutesHuman(norms.wakeWindowMin)}</span></div>
+          <div>Возраст (${escapeHtml(ageInfo.humanText)}): <span class="font-bold">окно ~${formatMinutesHuman(norms.wakeWindowMin)}</span></div>
           <div>Слагаемых интервалов: <span class="font-bold">${summary.awakeItems.length}</span></div>
         </div>
       </div>
@@ -2595,7 +3318,7 @@ function renderJournalMetricDetailModal(metric = 'awake', dateIso = '') {
           <div class="font-display font-extrabold text-2xl text-slate-900 dark:text-slate-100 tabular-nums">${sleepTotalStr}</div>
         </div>
         <div class="text-right text-[11px] text-slate-600 dark:text-slate-300 space-y-0.5">
-          <div>Ориентир (${escapeHtml(ageInfo.label)}): <span class="font-bold">${escapeHtml(norms.dailySleepLabel)}</span></div>
+          <div>Ориентир (${escapeHtml(ageInfo.humanText)}): <span class="font-bold">${escapeHtml(norms.dailySleepLabel)}</span></div>
           <div>Эпизодов сна: <span class="font-bold">${summary.sleepItems.length}</span></div>
         </div>
       </div>
