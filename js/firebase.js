@@ -29,6 +29,10 @@ import {
   closeModal,
   showToast
 } from './utils.js';
+import {
+  clearScheduledSystemNotifications,
+  unsubscribeWebPush
+} from './pwa.js';
 
 const FIREBASE_CDN_BASE = 'https://www.gstatic.com/firebasejs/11.6.1';
 
@@ -766,9 +770,11 @@ export function switchAuthMode(mode) {
   if (tabInv) tabInv.className = store.authMode === 'invite' ? activeCls : idleCls;
 
   const isInvite = store.authMode === 'invite';
+  const adminLockLink = document.getElementById('auth-admin-lock-link');
   if (credFields) credFields.classList.toggle('hidden', isInvite);
   if (regFields) regFields.classList.toggle('hidden', store.authMode !== 'register');
   if (invFields) invFields.classList.toggle('hidden', !isInvite);
+  if (adminLockLink) adminLockLink.classList.toggle('hidden', store.authMode !== 'register');
 
   if (loginInp) loginInp.required = !isInvite;
   if (passInp) passInp.required = !isInvite;
@@ -1125,6 +1131,8 @@ export function logoutAccount() {
   store.pendingSyncState = false;
   store.initialCloudSyncDone = true;
   writeLocalSession(null);
+  clearScheduledSystemNotifications().catch(() => {});
+  unsubscribeWebPush().catch(() => {});
   closeModal('modal-profile');
 
   // При выходе сразу переключаем форму на «Войти по логину» и очищаем поля пароля

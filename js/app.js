@@ -18,7 +18,8 @@ import {
   triggerPwaInstall,
   dismissPwaBanner,
   initPwaListeners,
-  registerAppServiceWorker
+  registerAppServiceWorker,
+  ensureWebPushSubscription
 } from './pwa.js';
 import {
   flushPendingSync,
@@ -41,6 +42,7 @@ import {
   openNotificationsModal,
   toggleNotifSetting,
   requestBrowserPushPermission,
+  testBackgroundPushUI,
   clearNotifHistory,
   applyThemeMode,
   setThemeMode,
@@ -148,7 +150,19 @@ import {
   setVaccineFilter,
   renderVaccinesList,
   openVaccineModal,
-  saveVaccineRecord
+  saveVaccineRecord,
+  setDoctorFilter,
+  renderDoctorsSection,
+  openCheckupModal,
+  toggleCheckupSpecialist,
+  markAllCheckupSpecialists,
+  clearCheckupScheduledDate,
+  saveCheckupRecord,
+  openCustomVisitModal,
+  pickCustomVisitSpecialist,
+  saveCustomVisit,
+  toggleCustomVisitDone,
+  deleteCustomVisitFromModal
 } from './tabs/health.js';
 import {
   setGrowthMetric,
@@ -184,6 +198,7 @@ function switchTab(tabName, options = {}) {
   if (tabName === 'health') {
     renderTeethChart();
     renderVaccinesList();
+    renderDoctorsSection();
   }
   if (tabName === 'growth') renderGrowthTab();
   if (tabName === 'symptoms') renderSymptoms();
@@ -211,6 +226,9 @@ function enterMainApp() {
   renderAll();
   scrollPageToTop();
   maybeAutoOpenNightMode({ forceOnLaunch: true });
+  if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+    ensureWebPushSubscription(store.currentAccountLogin || '', null).catch(() => {});
+  }
 }
 
 // Привязываем кросс-модульные хуки
@@ -282,6 +300,17 @@ Object.assign(window, {
   saveToothRecord,
   openVaccineModal,
   saveVaccineRecord,
+  setDoctorFilter,
+  openCheckupModal,
+  toggleCheckupSpecialist,
+  markAllCheckupSpecialists,
+  clearCheckupScheduledDate,
+  saveCheckupRecord,
+  openCustomVisitModal,
+  pickCustomVisitSpecialist,
+  saveCustomVisit,
+  toggleCustomVisitDone,
+  deleteCustomVisitFromModal,
   setGrowthMetric,
   addGrowthRecord,
   deleteGrowthRecord,
@@ -305,6 +334,7 @@ Object.assign(window, {
   logoutAccount,
   toggleNotifSetting,
   requestBrowserPushPermission,
+  testBackgroundPushUI,
   clearNotifHistory,
   handleSmartNotifAction,
   snoozeSmartNotif,

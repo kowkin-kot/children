@@ -118,11 +118,64 @@ self.addEventListener('message', (event) => {
   }
 });
 
+self.addEventListener('push', (event) => {
+  let payload = {
+    title: 'Малыш+',
+    body: 'Новое напоминание по режиму малыша',
+    key: 'alert',
+    tag: 'malysh-push-alert',
+    tab: 'journal',
+    url: './'
+  };
+
+  if (event.data) {
+    try {
+      const parsed = event.data.json();
+      if (parsed && typeof parsed === 'object') {
+        payload = {
+          ...payload,
+          ...parsed
+        };
+      }
+    } catch (_) {
+      try {
+        const txt = event.data.text();
+        if (txt) payload.body = txt;
+      } catch (_) {}
+    }
+  }
+
+  if (payload.key) {
+    clearScheduledEntry(String(payload.key));
+  }
+
+  event.waitUntil(dispatchSystemNotification(payload).catch(() => {}));
+});
+
+self.addEventListener('pushsubscriptionchange', (event) => {
+  event.waitUntil((async () => {
+    try {
+      const oldOpts = event.oldSubscription && event.oldSubscription.options;
+      if (oldOpts && oldOpts.applicationServerKey && self.registration && self.registration.pushManager) {
+        const newSub = await self.registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: oldOpts.applicationServerKey
+        });
+        await fetch('./api/push/subscribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ subscription: newSub.toJSON ? newSub.toJSON() : newSub })
+        }).catch(() => {});
+      }
+    } catch (_) {}
+  })());
+});
+
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const notifData = (event.notification && event.notification.data) || {};
-  const targetTab = notifData.tab || 'journal';
-  const targetKey = notifData.key || '';
+  const targetTab = typeof notifData.tab === 'string' && notifData.tab ? notifData.tab : 'journal';
+  const targetKey = typeof notifData.key === 'string' ? notifData.key : '';
 
   event.waitUntil((async () => {
     const windowClients = await self.clients.matchAll({
@@ -143,8 +196,10 @@ self.addEventListener('notificationclick', (event) => {
     }
 
     if (self.clients.openWindow) {
-      const url = new URL(notifData.url || './', self.registration.scope).href;
-      await self.clients.openWindow(url);
+      const candidate = new URL(typeof notifData.url === 'string' ? notifData.url : './', self.registration.scope);
+      const safeUrl = candidate.origin === self.location.origin ? candidate.href : self.registration.scope;
+      await self.clients.openWindow(safeUrl);
     }
   })());
 });
+

@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import type { Request, Response, NextFunction } from 'express';
+import * as webpush from 'web-push';
 import {
   firebaseConfig,
   appId,
@@ -427,6 +428,307 @@ async function patchFirestoreAccount(login: string, fieldsObj: Record<string, un
   await patchFirestoreAccountInCollection(FIREBASE_COLLECTION_PATH, login, fieldsObj);
 }
 
+// ==================== WEB PUSH (VAPID) ДЛЯ ФОНОВЫХ УВЕДОМЛЕНИЙ ====================
+
+interface PushSubscriptionKeys {
+  p256dh: string;
+  auth: string;
+}
+
+interface PushSubscriptionPayload {
+  endpoint: string;
+  expirationTime: number | null;
+  keys: PushSubscriptionKeys;
+}
+
+interface ScheduledPushItem {
+  key: 'feeding' | 'sleep' | 'diaper' | 'doctor' | 'custom';
+  tag: string;
+  triggerAt: number;
+  title: string;
+  body: string;
+  tab: string;
+  requireInteraction: boolean;
+  sentAt: number | null;
+}
+
+interface PushSubscriptionRecord {
+  id: string;
+  login: string;
+  subscription: PushSubscriptionPayload;
+  schedule: ScheduledPushItem[];
+  sentTags: Record<string, number>;
+  createdAt: number;
+  updatedAt: number;
+  lastPushAt: number | null;
+}
+
+const MAX_PUSH_SUBSCRIPTIONS = 5000;
+const PUSH_DISPATCH_INTERVAL_MS = 15000;
+const PUSH_TAG_COOLDOWN_MS = 30 * 60 * 1000;
+const PUSH_TEST_WINDOW_MS = 60 * 1000;
+const PUSH_TEST_MAX_PER_WINDOW = 6;
+const ALLOWED_SCHEDULE_KEYS = new Set(['feeding', 'sleep', 'diaper', 'doctor', 'custom']);
+const ALLOWED_TABS = new Set(['journal', 'development', 'health', 'growth', 'symptoms', 'diary']);
+
+const pushSubscriptions = new Map<string, PushSubscriptionRecord>();
+const pushTestRateLimits = new Map<string, { count: number; resetAt: number }>();
+const pushSubscribeRateLimits = new Map<string, { count: number; resetAt: number }>();
+
+function initWebPushConfig(): { publicKey: string; subject: string; configuredFromEnv: boolean } {
+  const envPub = (process.env.VAPID_PUBLIC_KEY || '').trim();
+  const envPriv = (process.env.VAPID_PRIVATE_KEY || '').trim();
+  const rawSubject = (process.env.VAPID_SUBJECT || '').trim();
+  const subject = (rawSubject.startsWith('mailto:') || rawSubject.startsWith('https://'))
+    ? rawSubject
+    : 'mailto:support@malysh-plus.local';
+
+  if (envPub && envPriv) {
+    try {
+      webpush.setVapidDetails(subject, envPub, envPriv);
+      return { publicKey: envPub, subject, configuredFromEnv: true };
+    } catch (err) {
+      console.warn('Invalid VAPID env keys, falling back to ephemeral VAPID keys:', err instanceof Error ? err.message : err);
+    }
+  }
+
+  const generated = webpush.generateVAPIDKeys();
+  webpush.setVapidDetails(subject, generated.publicKey, generated.privateKey);
+  return { publicKey: generated.publicKey, subject, configuredFromEnv: false };
+}
+
+const webPushConfig = initWebPushConfig();
+
+function hashPushEndpoint(endpoint: string): string {
+  return crypto.createHash('sha256').update(endpoint, 'utf8').digest('hex');
+}
+
+function isDisallowedPushHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (!host || !host.includes('.')) return true;
+  if (host === 'localhost' || host.endsWith('.local') || host.endsWith('.internal') || host.endsWith('.localhost')) {
+    return true;
+  }
+  // Block IPv4 literals (loopback, private, link-local, etc.) and IPv6 literals
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return true;
+  if (host.includes(':')) return true;
+  return false;
+}
+
+function validatePushEndpointUrl(rawEndpoint: unknown): string | null {
+  if (typeof rawEndpoint !== 'string') return null;
+  const trimmed = rawEndpoint.trim();
+  if (!trimmed || trimmed.length > 2048) return null;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== 'https:') return null;
+    if (parsed.username || parsed.password) return null;
+    if (isDisallowedPushHost(parsed.hostname)) return null;
+    return parsed.href;
+  } catch {
+    return null;
+  }
+}
+
+function validatePushSubscription(rawSub: unknown): PushSubscriptionPayload | null {
+  if (!rawSub || typeof rawSub !== 'object') return null;
+  const sub = rawSub as Record<string, unknown>;
+  const endpoint = validatePushEndpointUrl(sub.endpoint);
+  if (!endpoint) return null;
+
+  const keysObj = sub.keys && typeof sub.keys === 'object' ? (sub.keys as Record<string, unknown>) : null;
+  if (!keysObj) return null;
+
+  const p256dh = typeof keysObj.p256dh === 'string' ? keysObj.p256dh.trim() : '';
+  const auth = typeof keysObj.auth === 'string' ? keysObj.auth.trim() : '';
+  if (!/^[A-Za-z0-9_-]{40,200}=*$/.test(p256dh)) return null;
+  if (!/^[A-Za-z0-9_-]{16,80}=*$/.test(auth)) return null;
+
+  const exp = typeof sub.expirationTime === 'number' && Number.isFinite(sub.expirationTime)
+    ? sub.expirationTime
+    : null;
+
+  return {
+    endpoint,
+    expirationTime: exp,
+    keys: { p256dh, auth },
+  };
+}
+
+function sanitizePushLogin(rawLogin: unknown): string {
+  if (typeof rawLogin !== 'string') return '';
+  return rawLogin.trim().toLowerCase().slice(0, 64);
+}
+
+function sanitizeScheduledPushItems(rawItems: unknown, sentTags: Record<string, number>): ScheduledPushItem[] {
+  if (!Array.isArray(rawItems)) return [];
+  const now = Date.now();
+  const maxTriggerAt = now + 14 * 24 * 60 * 60 * 1000;
+  const out: ScheduledPushItem[] = [];
+  const seenTags = new Set<string>();
+
+  for (const raw of rawItems.slice(0, 32)) {
+    if (!raw || typeof raw !== 'object') continue;
+    const item = raw as Record<string, unknown>;
+    const keyRaw = typeof item.key === 'string' ? item.key.trim() : 'custom';
+    const key = (ALLOWED_SCHEDULE_KEYS.has(keyRaw) ? keyRaw : 'custom') as ScheduledPushItem['key'];
+
+    const triggerAt = Number(item.triggerAt);
+    if (!Number.isFinite(triggerAt) || triggerAt < now - 60_000 || triggerAt > maxTriggerAt) {
+      continue;
+    }
+
+    const rawTag = typeof item.tag === 'string' ? item.tag.trim() : '';
+    const tag = (rawTag || `malysh-${key}-${Math.round(triggerAt)}`).slice(0, 120);
+    if (seenTags.has(tag)) continue;
+    seenTags.add(tag);
+
+    const rawTitle = typeof item.title === 'string' ? item.title.trim() : '';
+    const title = (rawTitle || 'Малыш+').slice(0, 140);
+    const body = (typeof item.body === 'string' ? item.body.trim() : '').slice(0, 300);
+    const rawTab = typeof item.tab === 'string' ? item.tab.trim() : 'journal';
+    const tab = ALLOWED_TABS.has(rawTab) ? rawTab : 'journal';
+
+    const prevSentAt = sentTags[tag];
+    const alreadySentRecently = typeof prevSentAt === 'number' && (now - prevSentAt) < PUSH_TAG_COOLDOWN_MS;
+
+    out.push({
+      key,
+      tag,
+      triggerAt,
+      title,
+      body,
+      tab,
+      requireInteraction: Boolean(item.requireInteraction) || key === 'sleep' || key === 'feeding',
+      sentAt: alreadySentRecently ? prevSentAt : null,
+    });
+  }
+
+  return out;
+}
+
+function prunePushSubscriptionsIfNeeded(): void {
+  if (pushSubscriptions.size <= MAX_PUSH_SUBSCRIPTIONS) return;
+  const sorted = Array.from(pushSubscriptions.values()).sort((a, b) => a.updatedAt - b.updatedAt);
+  const toRemove = sorted.length - MAX_PUSH_SUBSCRIPTIONS;
+  for (let i = 0; i < toRemove; i++) {
+    pushSubscriptions.delete(sorted[i].id);
+  }
+}
+
+function isPushTestRateLimited(rateKey: string): boolean {
+  const now = Date.now();
+  const rec = pushTestRateLimits.get(rateKey);
+  if (!rec || now > rec.resetAt) {
+    pushTestRateLimits.set(rateKey, { count: 1, resetAt: now + PUSH_TEST_WINDOW_MS });
+    return false;
+  }
+  rec.count += 1;
+  return rec.count > PUSH_TEST_MAX_PER_WINDOW;
+}
+
+function isPushSubscribeRateLimited(clientKey: string): boolean {
+  const now = Date.now();
+  const rec = pushSubscribeRateLimits.get(clientKey);
+  if (!rec || now > rec.resetAt) {
+    pushSubscribeRateLimits.set(clientKey, { count: 1, resetAt: now + PUSH_TEST_WINDOW_MS });
+    return false;
+  }
+  rec.count += 1;
+  return rec.count > 30;
+}
+
+async function deliverWebPushNotification(
+  rec: PushSubscriptionRecord,
+  payload: {
+    title: string;
+    body: string;
+    tag: string;
+    key: string;
+    tab: string;
+    requireInteraction?: boolean;
+  }
+): Promise<{ ok: boolean; expired?: boolean; error?: string }> {
+  const bodyJson = JSON.stringify({
+    title: payload.title,
+    body: payload.body,
+    tag: payload.tag,
+    key: payload.key,
+    tab: payload.tab || 'journal',
+    requireInteraction: Boolean(payload.requireInteraction),
+    url: './',
+  });
+
+  try {
+    await webpush.sendNotification(rec.subscription, bodyJson, {
+      TTL: 3600,
+      urgency: 'high',
+    });
+    rec.lastPushAt = Date.now();
+    return { ok: true };
+  } catch (err: unknown) {
+    const statusCode =
+      err && typeof err === 'object' && 'statusCode' in err
+        ? Number((err as { statusCode?: unknown }).statusCode)
+        : 0;
+    if (statusCode === 404 || statusCode === 410) {
+      pushSubscriptions.delete(rec.id);
+      return { ok: false, expired: true, error: `Subscription expired (${statusCode})` };
+    }
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Push delivery failed',
+    };
+  }
+}
+
+let pushDispatchRunning = false;
+
+async function runScheduledPushDispatch(): Promise<void> {
+  if (pushDispatchRunning || pushSubscriptions.size === 0) return;
+  pushDispatchRunning = true;
+  try {
+    const now = Date.now();
+    for (const rec of Array.from(pushSubscriptions.values())) {
+      // Prune old sentTags (> 6h)
+      for (const [tag, ts] of Object.entries(rec.sentTags)) {
+        if (now - ts > 6 * 60 * 60 * 1000) {
+          delete rec.sentTags[tag];
+        }
+      }
+
+      if (!Array.isArray(rec.schedule) || rec.schedule.length === 0) continue;
+
+      for (const item of rec.schedule) {
+        if (item.sentAt !== null) continue;
+        if (item.triggerAt > now) continue;
+
+        const prevSentAt = rec.sentTags[item.tag];
+        if (typeof prevSentAt === 'number' && (now - prevSentAt) < PUSH_TAG_COOLDOWN_MS) {
+          item.sentAt = prevSentAt;
+          continue;
+        }
+
+        item.sentAt = now;
+        rec.sentTags[item.tag] = now;
+
+        const res = await deliverWebPushNotification(rec, {
+          title: item.title,
+          body: item.body,
+          tag: item.tag,
+          key: item.key,
+          tab: item.tab,
+          requireInteraction: item.requireInteraction,
+        });
+
+        if (res.expired) break;
+      }
+    }
+  } finally {
+    pushDispatchRunning = false;
+  }
+}
+
 async function startServer(): Promise<void> {
   const app = express();
   app.disable('x-powered-by');
@@ -522,6 +824,56 @@ async function startServer(): Promise<void> {
       activeSessions.delete(session.jti);
     }
     res.json({ ok: true });
+  });
+
+  // Change claimed admin password (when not overridden by ADMIN_PASSWORD env secret)
+  app.post('/api/admin/change-password', requireAdminAuth, (req, res) => {
+    const clientKey = getClientKey(req);
+    if (isRateLimited(clientKey)) {
+      res.status(429).json({ error: 'Слишком много неудачных попыток. Попробуйте позже.' });
+      return;
+    }
+
+    if (getEnvAdminPassword().length > 0) {
+      res.status(409).json({
+        error: 'Пароль администратора задан через секрет ADMIN_PASSWORD — измените его в настройках секретов проекта.'
+      });
+      return;
+    }
+
+    if (!claimedAdmin) {
+      res.status(409).json({ error: 'Пароль администратора ещё не настроен.' });
+      return;
+    }
+
+    const currentPassword = typeof req.body?.currentPassword === 'string' ? req.body.currentPassword : '';
+    const newPassword = typeof req.body?.newPassword === 'string' ? req.body.newPassword : '';
+
+    if (!currentPassword || currentPassword.length > 128 || !verifyAdminPassword(currentPassword)) {
+      recordLoginFailure(clientKey);
+      res.status(401).json({ error: 'Неверный текущий пароль администратора.' });
+      return;
+    }
+
+    if (newPassword.length < 6 || newPassword.length > 128) {
+      res.status(400).json({ error: 'Новый пароль администратора должен содержать от 6 до 128 символов.' });
+      return;
+    }
+
+    if (newPassword === currentPassword) {
+      res.status(400).json({ error: 'Новый пароль должен отличаться от текущего.' });
+      return;
+    }
+
+    loginFailures.delete(clientKey);
+    const salt = crypto.randomBytes(16).toString('hex');
+    const hashHex = crypto.scryptSync(newPassword, salt, 64).toString('hex');
+    claimedAdmin = { salt, hashHex, claimedAt: Date.now() };
+
+    // Revoke all previous sessions and issue a fresh token for the current admin
+    activeSessions.clear();
+    const { token, expiresAt } = issueAdminToken();
+    res.json({ ok: true, token, expiresAt, source: 'claimed' });
   });
 
   // Server-authorized password hash generation for user password reset
@@ -796,6 +1148,157 @@ async function startServer(): Promise<void> {
     }
   });
 
+  // ==================== WEB PUSH API ROUTES ====================
+
+  app.use('/api/push', (_req, res, next) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    next();
+  });
+
+  app.get('/api/push/public-key', (_req, res) => {
+    res.json({
+      supported: true,
+      publicKey: webPushConfig.publicKey,
+      persistentKeys: webPushConfig.configuredFromEnv,
+    });
+  });
+
+  app.post('/api/push/subscribe', (req, res) => {
+    if (isPushSubscribeRateLimited(getClientKey(req))) {
+      res.status(429).json({ error: 'Слишком много запросов подписки. Попробуйте через минуту.' });
+      return;
+    }
+
+    const sub = validatePushSubscription(req.body?.subscription);
+    if (!sub) {
+      res.status(400).json({ error: 'Некорректные данные Web Push подписки.' });
+      return;
+    }
+
+    const subId = hashPushEndpoint(sub.endpoint);
+    const login = sanitizePushLogin(req.body?.login);
+    const now = Date.now();
+    const existing = pushSubscriptions.get(subId);
+    const sentTags = existing?.sentTags || {};
+    const hasSchedule = Array.isArray(req.body?.schedule);
+    const schedule = hasSchedule
+      ? sanitizeScheduledPushItems(req.body.schedule, sentTags)
+      : (existing?.schedule || []);
+
+    const record: PushSubscriptionRecord = {
+      id: subId,
+      login: login || existing?.login || '',
+      subscription: sub,
+      schedule,
+      sentTags,
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+      lastPushAt: existing?.lastPushAt || null,
+    };
+
+    pushSubscriptions.set(subId, record);
+    prunePushSubscriptionsIfNeeded();
+
+    res.json({
+      ok: true,
+      scheduledCount: schedule.filter((s) => s.sentAt === null).length,
+    });
+  });
+
+  app.post('/api/push/sync-schedule', (req, res) => {
+    const endpoint = validatePushEndpointUrl(req.body?.endpoint);
+    if (!endpoint) {
+      res.status(400).json({ error: 'Некорректный endpoint подписки.' });
+      return;
+    }
+
+    const subId = hashPushEndpoint(endpoint);
+    const existing = pushSubscriptions.get(subId);
+    if (!existing) {
+      res.status(404).json({ error: 'Подписка не найдена на сервере — требуется перерегистрация.', needsResubscribe: true });
+      return;
+    }
+
+    const login = sanitizePushLogin(req.body?.login);
+    if (login) existing.login = login;
+    existing.schedule = sanitizeScheduledPushItems(req.body?.schedule, existing.sentTags);
+    existing.updatedAt = Date.now();
+
+    res.json({
+      ok: true,
+      scheduledCount: existing.schedule.filter((s) => s.sentAt === null).length,
+    });
+  });
+
+  app.post('/api/push/unsubscribe', (req, res) => {
+    const endpoint = validatePushEndpointUrl(req.body?.endpoint);
+    if (!endpoint) {
+      res.status(400).json({ error: 'Некорректный endpoint подписки.' });
+      return;
+    }
+    const subId = hashPushEndpoint(endpoint);
+    pushSubscriptions.delete(subId);
+    res.json({ ok: true });
+  });
+
+  app.post('/api/push/test', async (req, res) => {
+    const endpoint = validatePushEndpointUrl(req.body?.endpoint);
+    if (!endpoint) {
+      res.status(400).json({ error: 'Сначала включите системные Push-уведомления на этом устройстве.' });
+      return;
+    }
+
+    const subId = hashPushEndpoint(endpoint);
+    const rec = pushSubscriptions.get(subId);
+    if (!rec) {
+      res.status(404).json({ error: 'Подписка не активна — нажмите «Включить» ещё раз.', needsResubscribe: true });
+      return;
+    }
+
+    const rateKey = `${getClientKey(req)}:${subId.slice(0, 12)}`;
+    if (isPushTestRateLimited(rateKey)) {
+      res.status(429).json({ error: 'Слишком много тестовых отправок. Подождите минуту.' });
+      return;
+    }
+
+    const rawDelay = Number(req.body?.delaySec);
+    const delaySec = Number.isFinite(rawDelay) ? Math.max(0, Math.min(10, Math.round(rawDelay))) : 0;
+
+    const payload = {
+      title: 'Малыш+: фоновый Push работает!',
+      body: delaySec > 0
+        ? 'Отлично — уведомление пришло с сервера даже в свёрнутом режиме.'
+        : 'Тестовое серверное Push-уведомление доставлено.',
+      tag: `malysh-test-${Date.now()}`,
+      key: 'custom',
+      tab: 'journal',
+      requireInteraction: false,
+    };
+
+    if (delaySec > 0) {
+      setTimeout(() => {
+        const current = pushSubscriptions.get(subId);
+        if (current) {
+          deliverWebPushNotification(current, payload).catch(() => {});
+        }
+      }, delaySec * 1000);
+      res.json({ ok: true, queued: true, delaySec });
+      return;
+    }
+
+    const result = await deliverWebPushNotification(rec, payload);
+    if (!result.ok) {
+      res.status(result.expired ? 410 : 502).json({
+        error: result.error || 'Не удалось доставить Push-уведомление.',
+        needsResubscribe: Boolean(result.expired),
+      });
+      return;
+    }
+
+    res.json({ ok: true, delivered: true });
+  });
+
   // Friendly /admin alias
   app.get('/admin', (_req, res) => {
     res.redirect('/admin.html');
@@ -873,6 +1376,13 @@ export class ErrorOverlay extends HTMLElement {}
     app.get('/admin.html', (_req, res) => {
       res.sendFile(path.join(distDir, 'admin.html'));
     });
+  }
+
+  const pushInterval = setInterval(() => {
+    runScheduledPushDispatch().catch(() => {});
+  }, PUSH_DISPATCH_INTERVAL_MS);
+  if (typeof pushInterval.unref === 'function') {
+    pushInterval.unref();
   }
 
   app.listen(PORT, '0.0.0.0', () => {

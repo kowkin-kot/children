@@ -12,6 +12,254 @@ let swRegistrationPromise = null;
 let cachedSwRegistration = null;
 const pageFallbackTimers = new Map();
 
+let cachedVapidPublicKey = '';
+let activeWebPushEndpoint = '';
+let lastWebPushError = '';
+let lastServerScheduleSig = '';
+let activeWebPushPromise = null;
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; i += 1) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
+function uint8ArraysEqual(a, b) {
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+async function fetchServerVapidPublicKey() {
+  if (cachedVapidPublicKey) return cachedVapidPublicKey;
+  const resp = await fetch('./api/push/public-key', { cache: 'no-store' });
+  if (!resp.ok) {
+    throw new Error(`Push key HTTP ${resp.status}`);
+  }
+  const data = await resp.json();
+  if (!data || typeof data.publicKey !== 'string' || !data.publicKey) {
+    throw new Error('Сервер не вернул VAPID-ключ');
+  }
+  cachedVapidPublicKey = data.publicKey;
+  return cachedVapidPublicKey;
+}
+
+export function getWebPushStatus() {
+  const pushSupported =
+    typeof window !== 'undefined' &&
+    'serviceWorker' in navigator &&
+    'PushManager' in window &&
+    'Notification' in window;
+  return {
+    supported: pushSupported,
+    subscribed: Boolean(activeWebPushEndpoint),
+    lastError: lastWebPushError
+  };
+}
+
+export async function ensureWebPushSubscription(login = store.currentAccountLogin, scheduleItems = null) {
+  if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+    return { ok: false, reason: 'unsupported' };
+  }
+  if (Notification.permission !== 'granted') {
+    return { ok: false, reason: Notification.permission };
+  }
+  if (activeWebPushPromise && !scheduleItems) {
+    return activeWebPushPromise;
+  }
+
+  const run = async () => {
+    try {
+      const reg = await getActiveServiceWorkerRegistration(3000);
+      if (!reg || !reg.pushManager) {
+        lastWebPushError = 'Service Worker не активен';
+        return { ok: false, reason: 'no-sw', error: lastWebPushError };
+      }
+
+      const publicKey = await fetchServerVapidPublicKey();
+      const expectedKeyBytes = urlBase64ToUint8Array(publicKey);
+
+      let sub = await reg.pushManager.getSubscription();
+      if (sub && sub.options && sub.options.applicationServerKey) {
+        const currentKeyBytes = new Uint8Array(sub.options.applicationServerKey);
+        if (!uint8ArraysEqual(currentKeyBytes, expectedKeyBytes)) {
+          await sub.unsubscribe().catch(() => {});
+          sub = null;
+        }
+      }
+
+      if (!sub) {
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: expectedKeyBytes
+        });
+      }
+
+      const subJson = typeof sub.toJSON === 'function' ? sub.toJSON() : {
+        endpoint: sub.endpoint,
+        expirationTime: sub.expirationTime ?? null,
+        keys: {}
+      };
+
+      const resp = await fetch('./api/push/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          login: login || store.currentAccountLogin || '',
+          subscription: subJson,
+          ...(Array.isArray(scheduleItems) ? { schedule: scheduleItems } : {})
+        })
+      });
+
+      const body = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        lastWebPushError = body.error || `Push subscribe HTTP ${resp.status}`;
+        return { ok: false, reason: 'server-rejected', error: lastWebPushError };
+      }
+
+      activeWebPushEndpoint = subJson.endpoint || sub.endpoint || '';
+      lastWebPushError = '';
+      if (Array.isArray(scheduleItems)) {
+        lastServerScheduleSig = JSON.stringify({
+          login: login || '',
+          items: scheduleItems.map((it) => [it.tag, it.triggerAt, it.title, it.body])
+        });
+      }
+      return { ok: true, endpoint: activeWebPushEndpoint };
+    } catch (err) {
+      lastWebPushError = err?.message || 'Push subscription failed';
+      return { ok: false, reason: 'subscribe-failed', error: lastWebPushError };
+    } finally {
+      activeWebPushPromise = null;
+    }
+  };
+
+  if (!scheduleItems) {
+    activeWebPushPromise = run();
+    return activeWebPushPromise;
+  }
+  return run();
+}
+
+async function syncServerPushSchedule(validItems, login = store.currentAccountLogin) {
+  if (typeof window === 'undefined' || !('PushManager' in window) || !('Notification' in window)) return;
+  if (Notification.permission !== 'granted') return;
+
+  const sig = JSON.stringify({
+    login: login || '',
+    items: validItems.map((it) => [it.tag, it.triggerAt, it.title, it.body])
+  });
+
+  if (activeWebPushEndpoint && sig === lastServerScheduleSig) {
+    return;
+  }
+
+  if (!activeWebPushEndpoint) {
+    await ensureWebPushSubscription(login, validItems);
+    return;
+  }
+
+  try {
+    const resp = await fetch('./api/push/sync-schedule', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        endpoint: activeWebPushEndpoint,
+        login: login || '',
+        schedule: validItems
+      })
+    });
+    if (resp.status === 404) {
+      activeWebPushEndpoint = '';
+      lastServerScheduleSig = '';
+      await ensureWebPushSubscription(login, validItems);
+      return;
+    }
+    if (resp.ok) {
+      lastServerScheduleSig = sig;
+      lastWebPushError = '';
+    }
+  } catch (_) {}
+}
+
+export async function unsubscribeWebPush() {
+  const previousEndpoint = activeWebPushEndpoint;
+  activeWebPushEndpoint = '';
+  lastServerScheduleSig = '';
+  try {
+    if ('serviceWorker' in navigator && 'PushManager' in window) {
+      const reg = await getActiveServiceWorkerRegistration(1200);
+      const sub = reg?.pushManager ? await reg.pushManager.getSubscription() : null;
+      const endpoint = sub?.endpoint || previousEndpoint;
+      if (endpoint) {
+        await fetch('./api/push/unsubscribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ endpoint })
+        }).catch(() => {});
+      }
+      if (sub) {
+        await sub.unsubscribe().catch(() => {});
+      }
+    } else if (previousEndpoint) {
+      await fetch('./api/push/unsubscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ endpoint: previousEndpoint })
+      }).catch(() => {});
+    }
+  } catch (_) {}
+}
+
+export async function sendTestBackgroundPush(delaySec = 5) {
+  const subResult = await ensureWebPushSubscription(store.currentAccountLogin || '', null);
+  if (!subResult.ok || !activeWebPushEndpoint) {
+    return {
+      ok: false,
+      error: subResult.error || 'Не удалось активировать Web Push подписку на устройстве'
+    };
+  }
+
+  try {
+    const resp = await fetch('./api/push/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        endpoint: activeWebPushEndpoint,
+        delaySec
+      })
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (resp.status === 404 || resp.status === 410 || data.needsResubscribe) {
+      activeWebPushEndpoint = '';
+      const retrySub = await ensureWebPushSubscription(store.currentAccountLogin || '', null);
+      if (retrySub.ok && activeWebPushEndpoint) {
+        const retryResp = await fetch('./api/push/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ endpoint: activeWebPushEndpoint, delaySec })
+        });
+        const retryData = await retryResp.json().catch(() => ({}));
+        if (retryResp.ok) return { ok: true, queued: Boolean(retryData.queued), delaySec };
+        return { ok: false, error: retryData.error || 'Не удалось отправить Push-тест' };
+      }
+    }
+    if (!resp.ok) {
+      return { ok: false, error: data.error || `Push test HTTP ${resp.status}` };
+    }
+    return { ok: true, queued: Boolean(data.queued), delaySec };
+  } catch (err) {
+    return { ok: false, error: err?.message || 'Ошибка сети при отправке теста' };
+  }
+}
+
 export async function registerAppServiceWorker() {
   if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
     return null;
@@ -136,6 +384,9 @@ export async function syncScheduledSystemNotifications(items = []) {
     return;
   }
 
+  // Основной канал для свёрнутого/закрытого приложения: синхронизация расписания с сервером Web Push
+  syncServerPushSchedule(validItems, store.currentAccountLogin || '').catch(() => {});
+
   let postedToSw = false;
   try {
     const reg = await getActiveServiceWorkerRegistration(1200);
@@ -171,6 +422,7 @@ export async function clearScheduledSystemNotifications(key = '') {
     pageFallbackTimers.delete(key);
   } else if (!key) {
     clearPageFallbackTimers();
+    syncServerPushSchedule([], store.currentAccountLogin || '').catch(() => {});
   }
 
   try {

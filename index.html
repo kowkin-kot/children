@@ -156,14 +156,13 @@
         </button>
       </form>
 
-      <div class="pt-2 border-t border-stone-100 dark:border-slate-800 text-center space-y-2">
-        <a href="./admin.html" class="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-400 hover:text-rose-500 dark:text-slate-500 dark:hover:text-rose-400 transition">
-          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg>
-          <span>Панель администратора БД</span>
-        </a>
-        <p class="text-[10px] text-slate-400 dark:text-slate-500 leading-relaxed">
+      <div class="pt-2 border-t border-stone-100 dark:border-slate-800 text-center relative">
+        <p class="text-[10px] text-slate-400 dark:text-slate-500 leading-relaxed px-5">
           Информация в приложении носит исключительно справочно-ознакомительный характер, не является медицинской рекомендацией или руководством к действию. По вопросам здоровья и развития ребёнка всегда консультируйтесь с врачом.
         </p>
+        <a id="auth-admin-lock-link" href="./admin.html" aria-label="Доступ администратора" class="inline-flex items-center justify-center w-6 h-6 rounded-lg text-slate-300/65 dark:text-slate-700/75 hover:text-slate-400 dark:hover:text-slate-500 transition absolute right-0 bottom-0">
+          <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        </a>
       </div>
     </div>
   </div>
@@ -551,11 +550,15 @@
         <div id="teeth-forecast-box" class="p-3.5 rounded-2xl bg-warmgray/70 dark:bg-slate-800/70 border border-stone-200/70 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300 leading-relaxed"></div>
       </div>
 
+      <!-- Отдельный календарь прививок -->
       <div class="bg-white dark:bg-slate-900 rounded-3xl border border-stone-200/70 dark:border-slate-800 p-4 sm:p-6 space-y-4 shadow-2xs">
         <div class="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h2 class="font-display font-extrabold text-base sm:text-lg text-slate-900 dark:text-slate-100">Календарь прививок и осмотров врачей</h2>
-            <p class="text-xs text-slate-500 dark:text-slate-400">График рассчитан от даты рождения малыша</p>
+            <div class="flex items-center gap-2">
+              <h2 class="font-display font-extrabold text-base sm:text-lg text-slate-900 dark:text-slate-100">Календарь прививок</h2>
+              <span id="vaccines-progress-badge" class="px-2.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 text-[11px] font-bold">0 из 10</span>
+            </div>
+            <p class="text-xs text-slate-500 dark:text-slate-400">Национальный календарь вакцинации по дате рождения малыша</p>
           </div>
           <div class="flex items-center gap-1 bg-warmgray dark:bg-slate-800 p-1 rounded-xl">
             <button type="button" onclick="setVaccineFilter('all')" data-vac-filter="all" class="vac-filter-btn px-2.5 py-1 rounded-lg text-xs font-bold bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-2xs">Все</button>
@@ -565,6 +568,35 @@
         </div>
 
         <div id="vaccines-list-container" class="space-y-2.5"></div>
+      </div>
+
+      <!-- Отдельный планировщик визитов к врачам и диспансеризаций -->
+      <div class="bg-white dark:bg-slate-900 rounded-3xl border border-stone-200/70 dark:border-slate-800 p-4 sm:p-6 space-y-4 shadow-2xs">
+        <div class="flex flex-wrap items-start justify-between gap-2.5">
+          <div class="min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <h2 class="font-display font-extrabold text-base sm:text-lg text-slate-900 dark:text-slate-100">Визиты к врачам и диспансеризации</h2>
+              <span id="doctors-progress-badge" class="px-2.5 py-0.5 rounded-full bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 text-[11px] font-bold">0 из 12 чек-апов</span>
+            </div>
+            <p class="text-xs text-slate-500 dark:text-slate-400">Плановые медосмотры 0–5 лет, чек-листы специалистов, вопросы врачу и личные записи</p>
+          </div>
+          <button type="button" onclick="openCustomVisitModal()" class="px-3.5 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold transition flex items-center gap-1.5 shrink-0 shadow-2xs">
+            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+            <span>Добавить визит</span>
+          </button>
+        </div>
+
+        <div id="doctors-next-banner"></div>
+
+        <div class="flex items-center gap-1 bg-warmgray dark:bg-slate-800 p-1 rounded-xl overflow-x-auto no-scrollbar">
+          <button type="button" onclick="setDoctorFilter('all')" data-doc-filter="all" class="doctor-filter-btn px-2.5 py-1 rounded-lg text-xs font-bold bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-2xs shrink-0">Все</button>
+          <button type="button" onclick="setDoctorFilter('planned')" data-doc-filter="planned" class="doctor-filter-btn px-2.5 py-1 rounded-lg text-xs font-bold text-slate-500 dark:text-slate-400 shrink-0">Записаны</button>
+          <button type="button" onclick="setDoctorFilter('pending')" data-doc-filter="pending" class="doctor-filter-btn px-2.5 py-1 rounded-lg text-xs font-bold text-slate-500 dark:text-slate-400 shrink-0">Ожидают</button>
+          <button type="button" onclick="setDoctorFilter('done')" data-doc-filter="done" class="doctor-filter-btn px-2.5 py-1 rounded-lg text-xs font-bold text-slate-500 dark:text-slate-400 shrink-0">Пройдены</button>
+          <button type="button" onclick="setDoctorFilter('custom')" data-doc-filter="custom" class="doctor-filter-btn px-2.5 py-1 rounded-lg text-xs font-bold text-slate-500 dark:text-slate-400 shrink-0">Личные</button>
+        </div>
+
+        <div id="doctors-visits-container" class="space-y-2.5"></div>
       </div>
     </section>
 
@@ -827,13 +859,6 @@
             Сохранить изменения
           </button>
         </div>
-
-        <div class="pt-2 border-t border-stone-100 dark:border-slate-800 flex items-center justify-center">
-          <a href="./admin.html" class="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-400 hover:text-rose-500 dark:text-slate-500 dark:hover:text-rose-400 transition">
-            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg>
-            <span>Управление базами данных (Админ)</span>
-          </a>
-        </div>
       </form>
     </div>
   </div>
@@ -878,13 +903,21 @@
 
         <label class="flex items-center justify-between p-3 rounded-2xl bg-warmgray/70 dark:bg-slate-800/70 cursor-pointer">
           <div>
+            <div class="font-bold text-slate-800 dark:text-slate-100">Визиты к врачам</div>
+            <div class="text-[11px] text-slate-500">Напомнит за день и за 2 часа до назначенного приёма</div>
+          </div>
+          <input type="checkbox" id="notif-opt-doctors" onchange="toggleNotifSetting('doctors', this.checked)" class="w-4 h-4 accent-sky-600" />
+        </label>
+
+        <label class="flex items-center justify-between p-3 rounded-2xl bg-warmgray/70 dark:bg-slate-800/70 cursor-pointer">
+          <div>
             <div class="font-bold text-slate-800 dark:text-slate-100">Мягкий звуковой сигнал</div>
             <div class="text-[11px] text-slate-500">Тихий перезвон при появлении напоминания</div>
           </div>
           <input type="checkbox" id="notif-opt-sound" onchange="toggleNotifSetting('sound', this.checked)" class="w-4 h-4 accent-rose-500" />
         </label>
 
-        <div class="p-3 rounded-2xl bg-warmgray/70 dark:bg-slate-800/70 space-y-2">
+        <div class="p-3 rounded-2xl bg-warmgray/70 dark:bg-slate-800/70 space-y-2.5">
           <div class="flex items-center justify-between gap-2">
             <div class="min-w-0">
               <div class="font-bold text-slate-800 dark:text-slate-100">Системные Push-уведомления</div>
@@ -894,7 +927,21 @@
               Включить
             </button>
           </div>
+          <div id="push-test-bg-wrap" class="hidden flex items-center justify-between gap-2 pt-1 border-t border-stone-200/60 dark:border-slate-700/60">
+            <span class="text-[11px] text-slate-500 dark:text-slate-400">Нажмите и сразу сверните экран:</span>
+            <button type="button" id="push-test-bg-btn" onclick="testBackgroundPushUI()" class="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-700 hover:bg-rose-50 dark:hover:bg-rose-950/50 border border-stone-200 dark:border-slate-600 text-slate-700 dark:text-slate-100 text-[11px] font-bold transition shrink-0">
+              Тест в фоне (через 5 сек)
+            </button>
+          </div>
           <div id="push-platform-hint" class="hidden text-[11px] leading-relaxed text-amber-700 dark:text-amber-300 bg-amber-50/80 dark:bg-amber-950/40 border border-amber-200/70 dark:border-amber-800/60 rounded-xl px-2.5 py-2"></div>
+          <div class="text-[11px] leading-relaxed text-slate-500 dark:text-slate-400 bg-white/70 dark:bg-slate-900/50 rounded-xl px-2.5 py-2 space-y-1">
+            <div class="font-semibold text-slate-700 dark:text-slate-200">Чтобы уведомления приходили в свёрнутом виде:</div>
+            <ul class="list-disc pl-4 space-y-0.5">
+              <li>Нажмите <strong>«Включить»</strong> — расписание передаётся на Push-сервер и будит приложение даже при выключенном экране.</li>
+              <li>На <strong>iPhone / iPad</strong> добавьте приложение через Safari: <em>«Поделиться» → «На экран „Домой“»</em> и запускайте только с этой иконки.</li>
+              <li>На <strong>Android</strong> в настройках системы разрешите уведомления для браузера / «Малыш+» и отключите жёсткую экономию батареи для браузера.</li>
+            </ul>
+          </div>
         </div>
       </div>
 
@@ -951,12 +998,12 @@
     </div>
   </div>
 
-  <!-- ==================== МОДАЛЬНОЕ ОКНО: ПРИВИВКА / ОСМОТР ВРАЧА ==================== -->
-  <div id="modal-vaccine" class="fixed inset-0 z-50 hidden items-end sm:items-center justify-center bg-slate-900/40 dark:bg-black/65 backdrop-blur-xs p-0 sm:p-4 overflow-y-auto">
+  <!-- ==================== МОДАЛЬНОЕ ОКНО: ПРИВИВКА ==================== -->
+  <div id="modal-vaccine" onclick="if(event.target===this) closeModal('modal-vaccine')" class="fixed inset-0 z-50 hidden items-end sm:items-center justify-center bg-slate-900/40 dark:bg-black/65 backdrop-blur-xs p-0 sm:p-4 overflow-y-auto">
     <div class="bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl max-w-md w-full p-5 sm:p-6 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:pb-6 shadow-xl border border-stone-100 dark:border-slate-800 space-y-4 my-auto animate-fade-in">
       <div class="flex items-center justify-between">
         <div>
-          <h3 id="modal-vac-title" class="font-display font-extrabold text-lg text-slate-900 dark:text-slate-100">Прививка / осмотр</h3>
+          <h3 id="modal-vac-title" class="font-display font-extrabold text-lg text-slate-900 dark:text-slate-100">Прививка</h3>
           <p id="modal-vac-age" class="text-xs text-slate-500 dark:text-slate-400">Возраст по графику</p>
         </div>
         <button type="button" onclick="closeModal('modal-vaccine')" class="p-1.5 rounded-xl hover:bg-stone-100 dark:hover:bg-slate-800 text-slate-400">
@@ -968,7 +1015,7 @@
         <input type="hidden" id="vac-id-input" />
         <label class="flex items-center gap-2.5 p-3 rounded-2xl bg-warmgray/70 dark:bg-slate-800 cursor-pointer">
           <input type="checkbox" id="vac-done-checkbox" class="w-4 h-4 accent-emerald-600" />
-          <span class="text-xs font-bold text-slate-800 dark:text-slate-100">Выполнено / пройдено</span>
+          <span class="text-xs font-bold text-slate-800 dark:text-slate-100">Прививка выполнена</span>
         </label>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -983,24 +1030,225 @@
             </div>
           </div>
           <div class="min-w-0">
-            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Серия / кабинет</label>
+            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Серия вакцины</label>
             <input type="text" id="vac-series-input" placeholder="Например: А-412" class="w-full min-w-0 px-3.5 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-rose-400" />
           </div>
         </div>
 
         <div>
-          <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Название препарата / ФИО врача</label>
+          <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Название препарата</label>
           <input type="text" id="vac-drug-input" placeholder="Например: Пентаксим" class="w-full px-3.5 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-rose-400" />
         </div>
 
         <div>
-          <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Заметка о самочувствии после визита</label>
+          <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Заметка о реакции и самочувствии</label>
           <textarea id="vac-note-input" rows="2" placeholder="Температура в норме, перенёс хорошо..." class="w-full px-3.5 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-rose-400"></textarea>
         </div>
 
         <button type="submit" class="w-full py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold transition">
           Сохранить отметку
         </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ==================== МОДАЛЬНОЕ ОКНО: ПЛАНОВЫЙ ЧЕК-АП И СПЕЦИАЛИСТЫ ==================== -->
+  <div id="modal-checkup" onclick="if(event.target===this) closeModal('modal-checkup')" class="fixed inset-0 z-50 hidden items-end sm:items-center justify-center bg-slate-900/45 dark:bg-black/70 backdrop-blur-xs p-0 sm:p-4 overflow-y-auto">
+    <div class="bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl max-w-lg w-full max-h-[92vh] flex flex-col shadow-xl border border-stone-100 dark:border-slate-800 my-auto animate-fade-in overflow-hidden">
+      <div class="p-4 sm:p-5 border-b border-stone-100 dark:border-slate-800 flex items-start justify-between gap-2 shrink-0">
+        <div class="min-w-0">
+          <h3 id="modal-checkup-title" class="font-display font-extrabold text-base sm:text-lg text-slate-900 dark:text-slate-100">Плановый чек-ап</h3>
+          <p id="modal-checkup-subtitle" class="text-xs text-slate-500 dark:text-slate-400">Рекомендуемый возраст</p>
+        </div>
+        <button type="button" onclick="closeModal('modal-checkup')" aria-label="Закрыть" class="p-1.5 rounded-xl hover:bg-stone-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition shrink-0">
+          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <form onsubmit="saveCheckupRecord(event)" class="p-4 sm:p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:pb-5 overflow-y-auto space-y-3.5 flex-1">
+        <input type="hidden" id="checkup-id-input" />
+
+        <div id="modal-checkup-summary" class="p-3 rounded-2xl bg-sky-50/70 dark:bg-sky-950/35 border border-sky-200/70 dark:border-sky-800/50 text-xs text-sky-900 dark:text-sky-100 leading-relaxed"></div>
+
+        <!-- Чек-лист специалистов -->
+        <div class="space-y-2">
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-xs font-bold text-slate-700 dark:text-slate-200">Специалисты и обследования</span>
+            <button type="button" onclick="markAllCheckupSpecialists()" class="text-[11px] font-bold text-sky-600 dark:text-sky-400 hover:underline">Отметить всех</button>
+          </div>
+          <div id="checkup-specialists-list" class="grid grid-cols-1 sm:grid-cols-2 gap-1.5"></div>
+        </div>
+
+        <!-- Запись на приём (дата/время + напоминание) -->
+        <div class="p-3 rounded-2xl bg-warmgray/70 dark:bg-slate-800/70 border border-stone-200/70 dark:border-slate-700 space-y-2.5">
+          <div class="text-xs font-bold text-slate-800 dark:text-slate-100">Запись в клинику и напоминание</div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <div class="min-w-0">
+              <label class="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">Дата назначенного приёма</label>
+              <div class="flex items-center gap-1.5">
+                <div class="ru-date-box flex-1 min-w-0 rounded-xl bg-white dark:bg-slate-900 border border-stone-200 dark:border-slate-700 focus-within:ring-2 focus-within:ring-sky-400">
+                  <input type="date" id="checkup-scheduled-date-input" class="px-3 py-2 text-xs" />
+                  <div class="ru-date-overlay text-xs text-slate-800 dark:text-slate-100">
+                    <span data-ru-date-text="checkup-scheduled-date-input">ДД.ММ.ГГГГ</span>
+                    <svg class="w-3.5 h-3.5 text-slate-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="18" rx="3"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+                  </div>
+                </div>
+                <button type="button" onclick="clearCheckupScheduledDate()" title="Очистить дату" class="px-2 py-2 rounded-xl bg-white dark:bg-slate-900 border border-stone-200 dark:border-slate-700 text-[11px] text-slate-400 hover:text-rose-500 transition shrink-0">✕</button>
+              </div>
+            </div>
+            <div class="min-w-0">
+              <label for="checkup-scheduled-time-input" class="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">Время приёма</label>
+              <input type="time" id="checkup-scheduled-time-input" value="10:00" class="w-full min-w-0 px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-stone-200 dark:border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-sky-400" />
+            </div>
+          </div>
+          <label class="flex items-center gap-2 cursor-pointer pt-0.5">
+            <input type="checkbox" id="checkup-notify-checkbox" class="w-4 h-4 accent-sky-600" />
+            <span class="text-[11px] font-semibold text-slate-700 dark:text-slate-200">Напомнить о приёме за 1 день и за 2 часа</span>
+          </label>
+        </div>
+
+        <!-- Статус прохождения -->
+        <div class="p-3 rounded-2xl bg-emerald-50/60 dark:bg-emerald-950/25 border border-emerald-200/70 dark:border-emerald-900/50 grid grid-cols-1 sm:grid-cols-2 gap-2.5 items-center">
+          <label class="flex items-center gap-2.5 cursor-pointer">
+            <input type="checkbox" id="checkup-done-checkbox" class="w-4 h-4 accent-emerald-600" />
+            <span class="text-xs font-bold text-slate-800 dark:text-slate-100">Диспансеризация пройдена</span>
+          </label>
+          <div class="min-w-0">
+            <div class="ru-date-box rounded-xl bg-white dark:bg-slate-900 border border-stone-200 dark:border-slate-700 focus-within:ring-2 focus-within:ring-emerald-400">
+              <input type="date" id="checkup-completed-date-input" class="px-3 py-2 text-xs" />
+              <div class="ru-date-overlay text-xs text-slate-800 dark:text-slate-100">
+                <span data-ru-date-text="checkup-completed-date-input">ДД.ММ.ГГГГ</span>
+                <svg class="w-3.5 h-3.5 text-slate-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="18" rx="3"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <div class="min-w-0">
+            <label for="checkup-clinic-input" class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Клиника / кабинет</label>
+            <input type="text" id="checkup-clinic-input" maxlength="120" placeholder="Детская поликлиника №2, каб. 14" class="w-full min-w-0 px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-sky-400" />
+          </div>
+          <div class="min-w-0">
+            <label for="checkup-doctor-input" class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">ФИО врача</label>
+            <input type="text" id="checkup-doctor-input" maxlength="120" placeholder="Иванова Анна Сергеевна" class="w-full min-w-0 px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-sky-400" />
+          </div>
+        </div>
+
+        <div>
+          <label for="checkup-questions-input" class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Вопросы врачу (чтобы не забыть на приёме)</label>
+          <textarea id="checkup-questions-input" rows="2" maxlength="500" placeholder="Дозировка витамина D, срыгивания, прикорм..." class="w-full px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-sky-400"></textarea>
+        </div>
+
+        <div>
+          <label for="checkup-notes-input" class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Итоги осмотра и рекомендации</label>
+          <textarea id="checkup-notes-input" rows="2" maxlength="800" placeholder="Заключение специалистов, назначения, дата следующего контроля..." class="w-full px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-sky-400"></textarea>
+        </div>
+
+        <button type="submit" class="w-full min-h-[44px] py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs sm:text-sm font-bold transition">
+          Сохранить данные чек-апа
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ==================== МОДАЛЬНОЕ ОКНО: ЛИЧНЫЙ ВИЗИТ К ВРАЧУ ==================== -->
+  <div id="modal-custom-visit" onclick="if(event.target===this) closeModal('modal-custom-visit')" class="fixed inset-0 z-50 hidden items-end sm:items-center justify-center bg-slate-900/45 dark:bg-black/70 backdrop-blur-xs p-0 sm:p-4 overflow-y-auto">
+    <div class="bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl max-w-lg w-full max-h-[92vh] flex flex-col shadow-xl border border-stone-100 dark:border-slate-800 my-auto animate-fade-in overflow-hidden">
+      <div class="p-4 sm:p-5 border-b border-stone-100 dark:border-slate-800 flex items-start justify-between gap-2 shrink-0">
+        <div class="min-w-0">
+          <h3 id="modal-custom-visit-title" class="font-display font-extrabold text-base sm:text-lg text-slate-900 dark:text-slate-100">Запись к врачу</h3>
+          <p class="text-xs text-slate-500 dark:text-slate-400">Внеплановый приём, консультация, УЗИ или анализы</p>
+        </div>
+        <button type="button" onclick="closeModal('modal-custom-visit')" aria-label="Закрыть" class="p-1.5 rounded-xl hover:bg-stone-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition shrink-0">
+          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <form onsubmit="saveCustomVisit(event)" class="p-4 sm:p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:pb-5 overflow-y-auto space-y-3.5 flex-1">
+        <input type="hidden" id="custom-visit-id-input" />
+
+        <div class="space-y-1.5">
+          <div class="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Быстрый выбор профиля:</div>
+          <div class="flex flex-wrap gap-1.5">
+            <button type="button" onclick="pickCustomVisitSpecialist('Педиатр')" class="px-2.5 py-1 rounded-lg bg-warmgray dark:bg-slate-800 hover:bg-sky-50 dark:hover:bg-sky-950/60 border border-stone-200 dark:border-slate-700 text-[11px] font-bold text-slate-700 dark:text-slate-200 transition">Педиатр</button>
+            <button type="button" onclick="pickCustomVisitSpecialist('ЛОР')" class="px-2.5 py-1 rounded-lg bg-warmgray dark:bg-slate-800 hover:bg-sky-50 dark:hover:bg-sky-950/60 border border-stone-200 dark:border-slate-700 text-[11px] font-bold text-slate-700 dark:text-slate-200 transition">ЛОР</button>
+            <button type="button" onclick="pickCustomVisitSpecialist('Невролог')" class="px-2.5 py-1 rounded-lg bg-warmgray dark:bg-slate-800 hover:bg-sky-50 dark:hover:bg-sky-950/60 border border-stone-200 dark:border-slate-700 text-[11px] font-bold text-slate-700 dark:text-slate-200 transition">Невролог</button>
+            <button type="button" onclick="pickCustomVisitSpecialist('Офтальмолог')" class="px-2.5 py-1 rounded-lg bg-warmgray dark:bg-slate-800 hover:bg-sky-50 dark:hover:bg-sky-950/60 border border-stone-200 dark:border-slate-700 text-[11px] font-bold text-slate-700 dark:text-slate-200 transition">Офтальмолог</button>
+            <button type="button" onclick="pickCustomVisitSpecialist('Ортопед')" class="px-2.5 py-1 rounded-lg bg-warmgray dark:bg-slate-800 hover:bg-sky-50 dark:hover:bg-sky-950/60 border border-stone-200 dark:border-slate-700 text-[11px] font-bold text-slate-700 dark:text-slate-200 transition">Ортопед</button>
+            <button type="button" onclick="pickCustomVisitSpecialist('Стоматолог')" class="px-2.5 py-1 rounded-lg bg-warmgray dark:bg-slate-800 hover:bg-sky-50 dark:hover:bg-sky-950/60 border border-stone-200 dark:border-slate-700 text-[11px] font-bold text-slate-700 dark:text-slate-200 transition">Стоматолог</button>
+            <button type="button" onclick="pickCustomVisitSpecialist('УЗИ / Анализы')" class="px-2.5 py-1 rounded-lg bg-warmgray dark:bg-slate-800 hover:bg-sky-50 dark:hover:bg-sky-950/60 border border-stone-200 dark:border-slate-700 text-[11px] font-bold text-slate-700 dark:text-slate-200 transition">УЗИ / Анализы</button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <div class="min-w-0">
+            <label for="custom-visit-specialist-input" class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Специалист</label>
+            <input type="text" id="custom-visit-specialist-input" maxlength="80" placeholder="Например: Аллерголог" class="w-full min-w-0 px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-sky-400" />
+          </div>
+          <div class="min-w-0">
+            <label for="custom-visit-title-input" class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Повод / название визита</label>
+            <input type="text" id="custom-visit-title-input" required maxlength="120" placeholder="Повторный осмотр / справка" class="w-full min-w-0 px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-sky-400" />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <div class="min-w-0">
+            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Дата визита</label>
+            <div class="ru-date-box rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 focus-within:ring-2 focus-within:ring-sky-400">
+              <input type="date" id="custom-visit-date-input" required class="px-3 py-2 text-xs" />
+              <div class="ru-date-overlay text-xs text-slate-800 dark:text-slate-100">
+                <span data-ru-date-text="custom-visit-date-input">ДД.ММ.ГГГГ</span>
+                <svg class="w-3.5 h-3.5 text-slate-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="18" rx="3"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+              </div>
+            </div>
+          </div>
+          <div class="min-w-0">
+            <label for="custom-visit-time-input" class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Время приёма</label>
+            <input type="time" id="custom-visit-time-input" value="10:00" class="w-full min-w-0 px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-sky-400" />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <label class="flex items-center gap-2 p-2.5 rounded-xl bg-warmgray/70 dark:bg-slate-800/70 cursor-pointer">
+            <input type="checkbox" id="custom-visit-notify-checkbox" checked class="w-4 h-4 accent-sky-600" />
+            <span class="text-[11px] font-semibold text-slate-700 dark:text-slate-200">Напомнить (за 1 дн. и 2 ч)</span>
+          </label>
+          <label class="flex items-center gap-2 p-2.5 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/30 cursor-pointer">
+            <input type="checkbox" id="custom-visit-done-checkbox" class="w-4 h-4 accent-emerald-600" />
+            <span class="text-[11px] font-bold text-slate-800 dark:text-slate-100">Приём уже состоялся</span>
+          </label>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <div class="min-w-0">
+            <label for="custom-visit-clinic-input" class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Клиника / кабинет</label>
+            <input type="text" id="custom-visit-clinic-input" maxlength="120" placeholder="Клиника, адрес или каб." class="w-full min-w-0 px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-sky-400" />
+          </div>
+          <div class="min-w-0">
+            <label for="custom-visit-doctor-input" class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">ФИО врача</label>
+            <input type="text" id="custom-visit-doctor-input" maxlength="120" placeholder="Имя врача" class="w-full min-w-0 px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-sky-400" />
+          </div>
+        </div>
+
+        <div>
+          <label for="custom-visit-questions-input" class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Список вопросов на приём</label>
+          <textarea id="custom-visit-questions-input" rows="2" maxlength="500" placeholder="Что уточнить у врача..." class="w-full px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-sky-400"></textarea>
+        </div>
+
+        <div>
+          <label for="custom-visit-notes-input" class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Назначения и итоги</label>
+          <textarea id="custom-visit-notes-input" rows="2" maxlength="800" placeholder="Рекомендации, анализы, заметки после приёма..." class="w-full px-3 py-2 rounded-xl bg-warmgray dark:bg-slate-800 border border-stone-200 dark:border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-sky-400"></textarea>
+        </div>
+
+        <div class="flex items-center gap-2 pt-1">
+          <button type="button" id="custom-visit-delete-btn" onclick="deleteCustomVisitFromModal()" class="hidden px-3.5 py-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-600 dark:text-rose-300 text-xs font-bold transition shrink-0">
+            Удалить
+          </button>
+          <button type="submit" class="flex-1 min-h-[44px] py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs sm:text-sm font-bold transition">
+            Сохранить визит
+          </button>
+        </div>
       </form>
     </div>
   </div>

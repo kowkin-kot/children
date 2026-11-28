@@ -1265,16 +1265,140 @@ async function handleAdminLogout() {
   lockAdminPanel();
 }
 
+function openAdminSelfPasswordModal() {
+  const envNotice = document.getElementById('admin-self-pw-env-notice');
+  const form = document.getElementById('admin-self-pw-form');
+  const currentInp = document.getElementById('admin-self-pw-current');
+  const newInp = document.getElementById('admin-self-pw-new');
+  const confirmInp = document.getElementById('admin-self-pw-confirm');
+  const toggleBtn = document.getElementById('admin-self-pw-toggle-vis');
+  const errBox = document.getElementById('admin-self-pw-error');
+
+  if (currentInp) {
+    currentInp.value = '';
+    currentInp.type = 'password';
+  }
+  if (newInp) {
+    newInp.value = '';
+    newInp.type = 'password';
+  }
+  if (confirmInp) {
+    confirmInp.value = '';
+    confirmInp.type = 'password';
+  }
+  if (toggleBtn) toggleBtn.textContent = 'Показать';
+  if (errBox) errBox.classList.add('hidden');
+
+  const isEnvManaged = adminAuthSource === 'env';
+  if (envNotice) envNotice.classList.toggle('hidden', !isEnvManaged);
+  if (form) form.classList.toggle('hidden', isEnvManaged);
+
+  openModal('modal-admin-self-password');
+  if (!isEnvManaged) {
+    setTimeout(() => currentInp?.focus(), 50);
+  }
+}
+
+async function handleChangeAdminSelfPassword(e) {
+  e.preventDefault();
+  const errBox = document.getElementById('admin-self-pw-error');
+  const submitBtn = document.getElementById('admin-self-pw-submit');
+  if (errBox) errBox.classList.add('hidden');
+
+  const showErr = (msg) => {
+    if (!errBox) return;
+    errBox.textContent = msg;
+    errBox.classList.remove('hidden');
+  };
+
+  const currentPassword = document.getElementById('admin-self-pw-current')?.value || '';
+  const newPassword = document.getElementById('admin-self-pw-new')?.value || '';
+  const confirmPassword = document.getElementById('admin-self-pw-confirm')?.value || '';
+
+  if (!currentPassword) {
+    showErr('Введите текущий пароль администратора.');
+    return;
+  }
+  if (newPassword.length < 6 || newPassword.length > 128) {
+    showErr('Новый пароль должен содержать от 6 до 128 символов.');
+    return;
+  }
+  if (newPassword !== confirmPassword) {
+    showErr('Новые пароли не совпадают.');
+    return;
+  }
+  if (newPassword === currentPassword) {
+    showErr('Новый пароль должен отличаться от текущего.');
+    return;
+  }
+  if (!adminToken) {
+    showErr('Сессия администратора истекла. Войдите снова.');
+    lockAdminPanel();
+    return;
+  }
+
+  const prevText = submitBtn?.textContent || 'Сохранить пароль';
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Сохранение...';
+  }
+
+  try {
+    const resp = await fetch('/api/admin/change-password', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${adminToken}`
+      },
+      body: JSON.stringify({ currentPassword, newPassword })
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (resp.status === 401 && data.error && !data.error.includes('текущий')) {
+      closeModal('modal-admin-self-password');
+      lockAdminPanel('Сессия истекла. Войдите снова.');
+      return;
+    }
+    if (!resp.ok || !data.token) {
+      showErr(data.error || 'Не удалось изменить пароль администратора.');
+      return;
+    }
+
+    adminToken = data.token;
+    closeModal('modal-admin-self-password');
+    showToast('Пароль администратора изменён');
+  } catch (err) {
+    showErr(err?.message || 'Ошибка сети при сохранении пароля.');
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = prevText;
+    }
+  }
+}
+
 // ==================== ПРИВЯЗКА СОБЫТИЙ ====================
 
 function bindEvents() {
   document.getElementById('admin-claim-form')?.addEventListener('submit', handleClaimSubmit);
   document.getElementById('admin-login-form')?.addEventListener('submit', handleLoginSubmit);
   document.getElementById('admin-change-pw-form')?.addEventListener('submit', handleChangeUserPassword);
+  document.getElementById('admin-self-pw-form')?.addEventListener('submit', handleChangeAdminSelfPassword);
 
   document.getElementById('admin-toggle-login-vis')?.addEventListener('click', () => {
     const inp = document.getElementById('admin-login-pass');
     if (inp) inp.type = inp.type === 'password' ? 'text' : 'password';
+  });
+
+  document.getElementById('admin-self-pw-toggle-vis')?.addEventListener('click', () => {
+    const curInp = document.getElementById('admin-self-pw-current');
+    const newInp = document.getElementById('admin-self-pw-new');
+    const confInp = document.getElementById('admin-self-pw-confirm');
+    const toggleBtn = document.getElementById('admin-self-pw-toggle-vis');
+    const nextType = newInp && newInp.type === 'password' ? 'text' : 'password';
+    if (curInp) curInp.type = nextType;
+    if (newInp) newInp.type = nextType;
+    if (confInp) confInp.type = nextType;
+    if (toggleBtn) toggleBtn.textContent = nextType === 'text' ? 'Скрыть' : 'Показать';
   });
 
   document.getElementById('admin-theme-btn')?.addEventListener('click', toggleTheme);
@@ -1282,6 +1406,7 @@ function bindEvents() {
     fetchAllDatabases();
     showToast('Базы данных обновлены');
   });
+  document.getElementById('admin-change-admin-pw-btn')?.addEventListener('click', openAdminSelfPasswordModal);
   document.getElementById('admin-logout-btn')?.addEventListener('click', handleAdminLogout);
 
   document.getElementById('admin-search-input')?.addEventListener('input', renderDashboard);

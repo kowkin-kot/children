@@ -1050,20 +1050,180 @@ export const TOOTH_SYMPTOM_OPTIONS = [
 export const VACCINE_SCHEDULE = [
   { id: 'v_birth_hepb', daysOffset: 1, ageLabel: 'Первые 24 часа', type: 'vaccine', title: 'Вакцинация против вирусного гепатита B (1-я)' },
   { id: 'v_birth_bcg', daysOffset: 4, ageLabel: '3–7 дней', type: 'vaccine', title: 'Вакцинация против туберкулёза (БЦЖ-М)' },
-  { id: 'c_1m_all', daysOffset: 30, ageLabel: '1 месяц', type: 'checkup', title: 'Плановый осмотр: педиатр, невролог, детский хирург, офтальмолог, УЗИ' },
   { id: 'v_1m_hepb', daysOffset: 30, ageLabel: '1 месяц', type: 'vaccine', title: 'Вакцинация против вирусного гепатита B (2-я)' },
   { id: 'v_2m_pneumo', daysOffset: 60, ageLabel: '2 месяца', type: 'vaccine', title: 'Пневмококковая инфекция (1-я доза)' },
-  { id: 'c_3m_ortho', daysOffset: 90, ageLabel: '3 месяца', type: 'checkup', title: 'Плановый осмотр: педиатр и травматолог-ортопед' },
   { id: 'v_3m_akds', daysOffset: 90, ageLabel: '3 месяца', type: 'vaccine', title: 'АКДС / Пентаксим + полиомиелит (1-я)' },
   { id: 'v_45m_akds', daysOffset: 135, ageLabel: '4.5 месяца', type: 'vaccine', title: 'АКДС / Пентаксим + полиомиелит + пневмококк (2-я)' },
   { id: 'v_6m_akds', daysOffset: 180, ageLabel: '6 месяцев', type: 'vaccine', title: 'АКДС / Пентаксим + полиомиелит + гепатит B (3-я)' },
-  { id: 'c_9m_dentist', daysOffset: 270, ageLabel: '9 месяцев', type: 'checkup', title: 'Первый визит к детскому стоматологу и педиатру' },
-  { id: 'c_12m_all', daysOffset: 365, ageLabel: '12 месяцев (1 год)', type: 'checkup', title: 'Годовой чек-ап: педиатр, невролог, хирург, ЛОР, офтальмолог, ЭКГ' },
   { id: 'v_12m_mmr', daysOffset: 365, ageLabel: '12 месяцев (1 год)', type: 'vaccine', title: 'Вакцинация: корь, краснуха, эпидемический паротит (КПК)' },
   { id: 'v_15m_pneumo', daysOffset: 455, ageLabel: '15 месяцев', type: 'vaccine', title: 'Ревакцинация против пневмококковой инфекции' },
-  { id: 'v_18m_akds', daysOffset: 545, ageLabel: '18 месяцев (1.5 года)', type: 'vaccine', title: 'Первая ревакцинация АКДС / Пентаксим + полиомиелит' },
-  { id: 'c_24m_dentist', daysOffset: 730, ageLabel: '2 года', type: 'checkup', title: 'Осмотр педиатра и детского стоматолога' },
-  { id: 'c_36m_all', daysOffset: 1095, ageLabel: '3 года', type: 'checkup', title: 'Осмотр перед детским садом: педиатр, невролог, ЛОР, офтальмолог, стоматолог' }
+  { id: 'v_18m_akds', daysOffset: 545, ageLabel: '18 месяцев (1.5 года)', type: 'vaccine', title: 'Первая ревакцинация АКДС / Пентаксим + полиомиелит' }
+];
+
+export const DOCTOR_CHECKUPS_SCHEDULE = [
+  {
+    id: 'doc_patronage',
+    daysOffset: 7,
+    ageLabel: '1–2 недели',
+    title: 'Патронаж новорождённого дома',
+    summary: 'Первый осмотр после выписки из роддома: пупочная ранка, кожа, рефлексы, прибавка и кормление.',
+    specialists: [
+      { id: 'ped', label: 'Педиатр (осмотр после роддома)' },
+      { id: 'nurse', label: 'Медсестра (уход, пупок, поддержка ГВ)' }
+    ]
+  },
+  {
+    id: 'doc_1m',
+    legacyId: 'c_1m_all',
+    daysOffset: 30,
+    ageLabel: '1 месяц',
+    title: 'Большой чек-ап в 1 месяц',
+    summary: 'Первая комплексная диспансеризация: неврология, зрение, хирургия и скрининговые УЗИ.',
+    specialists: [
+      { id: 'ped', label: 'Педиатр (рост, вес, оценка развития)' },
+      { id: 'neuro', label: 'Невролог' },
+      { id: 'surg', label: 'Детский хирург' },
+      { id: 'oph', label: 'Офтальмолог' },
+      { id: 'usg_brain', label: 'УЗИ головного мозга (НСГ)' },
+      { id: 'usg_heart', label: 'УЗИ сердца (ЭхоКГ)' },
+      { id: 'usg_abdomen', label: 'УЗИ брюшной полости и почек' },
+      { id: 'usg_hips', label: 'УЗИ тазобедренных суставов' }
+    ]
+  },
+  {
+    id: 'doc_2m',
+    daysOffset: 60,
+    ageLabel: '2 месяца',
+    title: 'Осмотр педиатра и анализы в 2 месяца',
+    summary: 'Контроль прибавок и первые клинические анализы перед плановой вакцинацией.',
+    specialists: [
+      { id: 'ped', label: 'Педиатр' },
+      { id: 'oak', label: 'Общий анализ крови (ОАК)' },
+      { id: 'oam', label: 'Общий анализ мочи (ОАМ)' }
+    ]
+  },
+  {
+    id: 'doc_3m',
+    legacyId: 'c_3m_ortho',
+    daysOffset: 90,
+    ageLabel: '3 месяца',
+    title: 'Плановый осмотр в 3 месяца',
+    summary: 'Оценка мышечного тонуса, тазобедренных суставов и двигательных навыков.',
+    specialists: [
+      { id: 'ped', label: 'Педиатр' },
+      { id: 'ortho', label: 'Травматолог-ортопед' },
+      { id: 'neuro', label: 'Невролог (по показаниям)' }
+    ]
+  },
+  {
+    id: 'doc_6m',
+    daysOffset: 180,
+    ageLabel: '6 месяцев',
+    title: 'Полугодовой осмотр перед прикормом',
+    summary: 'Оценка готовности к прикорму, прорезывания первых зубов и моторных навыков.',
+    specialists: [
+      { id: 'ped', label: 'Педиатр (план прикорма, витамин D)' },
+      { id: 'neuro', label: 'Невролог (по показаниям)' },
+      { id: 'surg', label: 'Детский хирург (по показаниям)' }
+    ]
+  },
+  {
+    id: 'doc_9m',
+    legacyId: 'c_9m_dentist',
+    daysOffset: 270,
+    ageLabel: '9 месяцев',
+    title: 'Первый стоматолог и осмотр педиатра',
+    summary: 'Проверка первых молочных зубов, уздечки и правил гигиены полости рта.',
+    specialists: [
+      { id: 'ped', label: 'Педиатр' },
+      { id: 'dent', label: 'Детский стоматолог' }
+    ]
+  },
+  {
+    id: 'doc_12m',
+    legacyId: 'c_12m_all',
+    daysOffset: 365,
+    ageLabel: '1 год (12 мес.)',
+    title: 'Годовая диспансеризация',
+    summary: 'Итоговый чек-ап первого года жизни: узкие специалисты, ЭКГ и лабораторные анализы.',
+    specialists: [
+      { id: 'ped', label: 'Педиатр' },
+      { id: 'neuro', label: 'Невролог' },
+      { id: 'surg', label: 'Детский хирург' },
+      { id: 'lor', label: 'Оториноларинголог (ЛОР)' },
+      { id: 'oph', label: 'Офтальмолог' },
+      { id: 'dent', label: 'Детский стоматолог' },
+      { id: 'ecg', label: 'ЭКГ' },
+      { id: 'labs', label: 'Анализы крови (ОАК, глюкоза) и ОАМ' }
+    ]
+  },
+  {
+    id: 'doc_18m',
+    daysOffset: 545,
+    ageLabel: '1.5 года',
+    title: 'Профилактический осмотр в 1,5 года',
+    summary: 'Оценка словарного запаса, крупной моторики, прикуса и графика ревакцинации.',
+    specialists: [
+      { id: 'ped', label: 'Педиатр' },
+      { id: 'dent', label: 'Детский стоматолог (профилактика кариеса)' }
+    ]
+  },
+  {
+    id: 'doc_24m',
+    legacyId: 'c_24m_dentist',
+    daysOffset: 730,
+    ageLabel: '2 года',
+    title: 'Диспансеризация в 2 года',
+    summary: 'Проверка речи, когнитивного развития и состояния молочных зубов.',
+    specialists: [
+      { id: 'ped', label: 'Педиатр' },
+      { id: 'dent', label: 'Детский стоматолог' },
+      { id: 'psych', label: 'Психиатр / скрининг развития речи' }
+    ]
+  },
+  {
+    id: 'doc_36m',
+    legacyId: 'c_36m_all',
+    daysOffset: 1095,
+    ageLabel: '3 года',
+    title: 'Комиссия в 3 года (перед детским садом)',
+    summary: 'Полный профилактический медосмотр узких специалистов и оформление медкарты.',
+    specialists: [
+      { id: 'ped', label: 'Педиатр' },
+      { id: 'neuro', label: 'Невролог' },
+      { id: 'surg', label: 'Детский хирург' },
+      { id: 'oph', label: 'Офтальмолог' },
+      { id: 'lor', label: 'Оториноларинголог (ЛОР)' },
+      { id: 'dent', label: 'Детский стоматолог' },
+      { id: 'uro_gyn', label: 'Уролог-андролог / гинеколог' },
+      { id: 'labs', label: 'ОАК и ОАМ' }
+    ]
+  },
+  {
+    id: 'doc_48m',
+    daysOffset: 1460,
+    ageLabel: '4 года',
+    title: 'Профилактический чек-ап в 4 года',
+    summary: 'Ежегодный контроль роста, зрения, звукопроизношения и зубов.',
+    specialists: [
+      { id: 'ped', label: 'Педиатр' },
+      { id: 'dent', label: 'Детский стоматолог' },
+      { id: 'logo', label: 'Логопед / офтальмолог (по показаниям)' }
+    ]
+  },
+  {
+    id: 'doc_60m',
+    daysOffset: 1825,
+    ageLabel: '5 лет',
+    title: 'Профилактический чек-ап в 5 лет',
+    summary: 'Контроль осанки, остроты зрения, речи и подготовки к дошкольному возрасту.',
+    specialists: [
+      { id: 'ped', label: 'Педиатр (оценка роста, веса, осанки)' },
+      { id: 'dent', label: 'Детский стоматолог' },
+      { id: 'oph', label: 'Офтальмолог' },
+      { id: 'logo', label: 'Логопед' }
+    ]
+  }
 ];
 
 export const SYMPTOMS_DATA = [

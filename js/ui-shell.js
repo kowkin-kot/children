@@ -1,5 +1,6 @@
 // Шапка приложения, виджет «Здесь и сейчас», умные напоминания, темы оформления и настройки профиля
 
+import { DOCTOR_CHECKUPS_SCHEDULE } from './data.js';
 import {
   store,
   hooks,
@@ -12,6 +13,7 @@ import {
 import {
   escapeHtml,
   getTodayIso,
+  formatDateRu,
   formatMinutesHuman,
   formatClockHHMM,
   syncRuDateDisplays,
@@ -30,7 +32,10 @@ import {
   isStandalonePwa,
   registerAppServiceWorker,
   showSystemNotification,
-  syncScheduledSystemNotifications
+  syncScheduledSystemNotifications,
+  ensureWebPushSubscription,
+  getWebPushStatus,
+  sendTestBackgroundPush
 } from './pwa.js';
 
 export function renderHeaderBabyInfo() {
@@ -383,6 +388,51 @@ export function getNotificationPlatformInfo() {
   return { isIos, isAndroid, standalone, supported, permission, inIframe };
 }
 
+function parseDoctorVisitTs(dateIso, timeStr = '10:00') {
+  if (!dateIso || typeof dateIso !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(dateIso)) return null;
+  const [y, m, d] = dateIso.split('-').map(Number);
+  const safeTime = /^\d{2}:\d{2}$/.test(timeStr || '') ? timeStr : '10:00';
+  const [hh, mm] = safeTime.split(':').map(Number);
+  const dt = new Date(y, (m || 1) - 1, d || 1, hh || 0, mm || 0, 0, 0);
+  return Number.isFinite(dt.getTime()) ? dt.getTime() : null;
+}
+
+function collectScheduledDoctorVisits(appState) {
+  const visits = [];
+  if (!appState) return visits;
+  const checkupsMap = appState.checkupsMap || {};
+  for (const item of DOCTOR_CHECKUPS_SCHEDULE) {
+    const rec = checkupsMap[item.id];
+    if (!rec || rec.done || !rec.scheduledDate || rec.notifyEnabled === false) continue;
+    const apptTs = parseDoctorVisitTs(rec.scheduledDate, rec.scheduledTime || '10:00');
+    if (!apptTs) continue;
+    visits.push({
+      id: item.id,
+      title: item.title,
+      date: rec.scheduledDate,
+      time: rec.scheduledTime || '10:00',
+      clinic: rec.clinic || '',
+      questions: rec.questions || '',
+      apptTs
+    });
+  }
+  for (const v of appState.customVisits || []) {
+    if (!v || v.status === 'done' || !v.date || v.notifyEnabled === false) continue;
+    const apptTs = parseDoctorVisitTs(v.date, v.time || '10:00');
+    if (!apptTs) continue;
+    visits.push({
+      id: v.id,
+      title: v.specialist && v.title !== v.specialist ? `${v.specialist}: ${v.title}` : (v.title || v.specialist || 'Визит к врачу'),
+      date: v.date,
+      time: v.time || '10:00',
+      clinic: v.clinic || '',
+      questions: v.questions || '',
+      apptTs
+    });
+  }
+  return visits.sort((a, b) => a.apptTs - b.apptTs);
+}
+
 export function buildUpcomingNotificationSchedule(appState, metrics, now = Date.now()) {
   const items = [];
   if (!appState || !metrics) return items;
@@ -438,6 +488,39 @@ export function buildUpcomingNotificationSchedule(appState, metrics, now = Date.
     }
   }
 
+  if (notifs.doctors !== false) {
+    const snoozeDocTs = Number(snoozed.doctor || 0);
+    const maxHorizonMs = now + 13 * 86400000;
+    for (const visit of collectScheduledDoctorVisits(appState)) {
+      const clinicPart = visit.clinic ? ` • ${visit.clinic}` : '';
+      const qPart = visit.questions ? ' (не забудьте список вопросов)' : '';
+
+      const dayBeforeTs = Math.max(visit.apptTs - 24 * 3600000, snoozeDocTs);
+      if (dayBeforeTs > now && dayBeforeTs <= maxHorizonMs && visit.apptTs - now > 3 * 3600000) {
+        items.push({
+          key: 'doctor',
+          tag: `malysh-doctor-${visit.id}-${visit.apptTs}-24h`,
+          triggerAt: dayBeforeTs,
+          title: `${babyName}: завтра визит к врачу`,
+          body: `${visit.title} — ${formatDateRu(visit.date)} в ${visit.time}${clinicPart}${qPart}`,
+          tab: 'health'
+        });
+      }
+
+      const twoHoursBeforeTs = Math.max(visit.apptTs - 2 * 3600000, snoozeDocTs);
+      if (twoHoursBeforeTs > now && twoHoursBeforeTs <= maxHorizonMs) {
+        items.push({
+          key: 'doctor',
+          tag: `malysh-doctor-${visit.id}-${visit.apptTs}-2h`,
+          triggerAt: twoHoursBeforeTs,
+          title: `${babyName}: сегодня приём в ${visit.time}`,
+          body: `${visit.title}${clinicPart}${qPart}`,
+          tab: 'health'
+        });
+      }
+    }
+  }
+
   return items;
 }
 
@@ -452,6 +535,7 @@ export function evaluateActiveNotificationAlerts(appState, metrics, now = Date.n
     if (!snoozed.feeding || now > snoozed.feeding) {
       alerts.push({
         key: 'feeding',
+        tab: 'journal',
         signature: `feeding_${metrics.lastFeedTs || 0}_${snoozed.feeding || 0}`,
         title: `Пора покормить малыша (прошло ${formatMinutesHuman(metrics.sinceFeedMin)})`,
         pushTitle: `${babyName}: пора покормить`,
@@ -465,6 +549,7 @@ export function evaluateActiveNotificationAlerts(appState, metrics, now = Date.n
     if (!snoozed.sleep || now > snoozed.sleep) {
       alerts.push({
         key: 'sleep',
+        tab: 'journal',
         signature: `sleep_${metrics.lastWakeStartTs || 0}_${snoozed.sleep || 0}`,
         title: `Время укладывать спать (бодрствует ${formatMinutesHuman(metrics.wakeMin)})`,
         pushTitle: `${babyName}: пора укладывать спать`,
@@ -478,11 +563,41 @@ export function evaluateActiveNotificationAlerts(appState, metrics, now = Date.n
     if (!snoozed.diaper || now > snoozed.diaper) {
       alerts.push({
         key: 'diaper',
+        tab: 'journal',
         signature: `diaper_${metrics.lastDiaperTs || 0}_${snoozed.diaper || 0}`,
         title: `Пора проверить подгузник (прошло ${formatMinutesHuman(metrics.sinceDiaperMin)})`,
         pushTitle: `${babyName}: проверьте подгузник`,
         pushBody: `С последней смены подгузника прошло ${formatMinutesHuman(metrics.sinceDiaperMin)}.`,
         actionLabel: 'Открыть журнал'
+      });
+    }
+  }
+
+  if (notifs.doctors !== false && (!snoozed.doctor || now > snoozed.doctor)) {
+    const soonVisit = collectScheduledDoctorVisits(appState).find(v => {
+      const diffMs = v.apptTs - now;
+      return diffMs >= -30 * 60000 && diffMs <= 24 * 3600000;
+    });
+    if (soonVisit) {
+      const diffMin = Math.round((soonVisit.apptTs - now) / 60000);
+      const clinicPart = soonVisit.clinic ? ` (${soonVisit.clinic})` : '';
+      const isToday = soonVisit.date === getTodayIso();
+      const whenLabel = diffMin <= 0
+        ? `сейчас (${soonVisit.time})`
+        : diffMin <= 150
+          ? `через ${formatMinutesHuman(diffMin)} (${soonVisit.time})`
+          : isToday
+            ? `сегодня в ${soonVisit.time}`
+            : `завтра в ${soonVisit.time}`;
+      const stage = diffMin <= 150 ? '2h' : '24h';
+      alerts.push({
+        key: 'doctor',
+        tab: 'health',
+        signature: `doctor_${soonVisit.id}_${soonVisit.apptTs}_${stage}_${snoozed.doctor || 0}`,
+        title: `Визит к врачу ${whenLabel}: ${soonVisit.title}${clinicPart}`,
+        pushTitle: `${babyName}: приём ${whenLabel}`,
+        pushBody: `${soonVisit.title}${clinicPart}${soonVisit.questions ? ' • Проверьте вопросы врачу' : ''}`,
+        actionLabel: 'Открыть визиты'
       });
     }
   }
@@ -551,17 +666,26 @@ export function updatePushPermissionUI() {
   const lbl = document.getElementById('push-status-label');
   const hintEl = document.getElementById('push-platform-hint');
   const btn = document.getElementById('push-perm-btn');
+  const testWrap = document.getElementById('push-test-bg-wrap');
   const info = getNotificationPlatformInfo();
+  const pushStatus = getWebPushStatus();
+
+  if (testWrap) {
+    testWrap.classList.toggle('hidden', !(info.supported && info.permission === 'granted' && pushStatus.supported));
+  }
 
   if (hintEl) {
     if (info.isIos && !info.standalone) {
-      hintEl.textContent = 'На iPhone системные уведомления работают только после добавления на экран «Домой»: нажмите «Поделиться» в Safari → «На экран „Домой“» и откройте иконку.';
+      hintEl.textContent = 'На iPhone фоновые уведомления работают только после добавления на экран «Домой»: нажмите «Поделиться» в Safari → «На экран „Домой“» и откройте иконку.';
       hintEl.classList.remove('hidden');
     } else if (info.inIframe) {
-      hintEl.textContent = 'В окне предпросмотра браузер может ограничивать Push-уведомления — откройте приложение на телефоне в отдельной вкладке или как PWA.';
+      hintEl.textContent = 'В окне предпросмотра браузер может ограничивать фоновые Push-уведомления — откройте приложение в отдельной вкладке или установите на телефон как PWA.';
       hintEl.classList.remove('hidden');
     } else if (info.permission === 'denied') {
       hintEl.textContent = 'Уведомления запрещены в настройках сайта/телефона. Нажмите на значок настроек слева от адреса сайта и разрешите «Уведомления».';
+      hintEl.classList.remove('hidden');
+    } else if (info.permission === 'granted' && !pushStatus.subscribed && pushStatus.lastError) {
+      hintEl.textContent = `Фоновый Push-канал пока не подключился (${pushStatus.lastError}). Убедитесь, что открыто не в режиме инкогнито и не во фрейме.`;
       hintEl.classList.remove('hidden');
     } else {
       hintEl.textContent = '';
@@ -585,11 +709,20 @@ export function updatePushPermissionUI() {
 
   if (info.permission === 'granted') {
     if (lbl) {
-      lbl.textContent = 'Системные уведомления включены';
-      lbl.className = 'text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold';
+      if (pushStatus.subscribed) {
+        lbl.textContent = 'Фоновый Web Push активен — придут даже в свёрнутом виде';
+        lbl.className = 'text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold';
+      } else if (pushStatus.supported) {
+        lbl.textContent = 'Разрешено — подключаем фоновый Push-канал...';
+        lbl.className = 'text-[11px] text-sky-600 dark:text-sky-400 font-semibold';
+      } else {
+        lbl.textContent = 'Системные уведомления включены (только пока открыта вкладка)';
+        lbl.className = 'text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold';
+      }
     }
     if (btn) {
-      btn.textContent = 'Включено';
+      btn.textContent = pushStatus.subscribed ? 'Активно' : 'Включено';
+      btn.disabled = false;
       btn.className = 'px-3 py-1.5 rounded-xl bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 text-[11px] font-bold transition shrink-0';
     }
   } else if (info.permission === 'denied') {
@@ -599,6 +732,7 @@ export function updatePushPermissionUI() {
     }
     if (btn) {
       btn.textContent = 'Как включить';
+      btn.disabled = false;
       btn.className = 'px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-[11px] font-bold transition shrink-0';
     }
   } else {
@@ -608,6 +742,7 @@ export function updatePushPermissionUI() {
     }
     if (btn) {
       btn.textContent = 'Включить';
+      btn.disabled = false;
       btn.className = 'px-3 py-1.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-[11px] font-bold transition shrink-0';
     }
   }
@@ -653,8 +788,8 @@ export function evaluateSmartNotifications() {
           body: alert.pushBody || alert.title,
           tag: `malysh-${alert.key}`,
           key: alert.key,
-          tab: 'journal',
-          requireInteraction: alert.key === 'sleep' || alert.key === 'feeding'
+          tab: alert.tab || 'journal',
+          requireInteraction: alert.key === 'sleep' || alert.key === 'feeding' || alert.key === 'doctor'
         }).catch(() => {});
       }
     }
@@ -687,6 +822,10 @@ export function evaluateSmartNotifications() {
 }
 
 export function handleSmartNotifAction(key) {
+  if (key === 'doctor') {
+    hooks.switchTab('health');
+    return;
+  }
   hooks.switchTab('journal');
   if (key === 'feeding' && !store.appState.timers?.feeding?.active) hooks.toggleTimer('feeding');
   if (key === 'sleep' && !store.appState.timers?.sleep?.active) hooks.toggleTimer('sleep');
@@ -715,10 +854,19 @@ export function openNotificationsModal() {
   document.getElementById('notif-opt-feeding').checked = Boolean(store.appState.notifications?.feeding);
   document.getElementById('notif-opt-sleep').checked = Boolean(store.appState.notifications?.sleep);
   document.getElementById('notif-opt-diaper').checked = Boolean(store.appState.notifications?.diaper);
+  const docOpt = document.getElementById('notif-opt-doctors');
+  if (docOpt) docOpt.checked = store.appState.notifications?.doctors !== false;
   document.getElementById('notif-opt-sound').checked = Boolean(store.appState.notifications?.sound);
 
   registerAppServiceWorker().catch(() => {});
   updatePushPermissionUI();
+  if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+    const m = computeHereAndNowMetrics();
+    const upcoming = buildUpcomingNotificationSchedule(store.appState, m, Date.now());
+    ensureWebPushSubscription(store.currentAccountLogin || '', upcoming).then(() => {
+      updatePushPermissionUI();
+    }).catch(() => {});
+  }
   renderNotifHistoryList();
   openModal('modal-notifications');
 }
@@ -747,8 +895,13 @@ export async function requestBrowserPushPermission() {
 
   if (Notification.permission === 'granted') {
     await registerAppServiceWorker();
+    const m = computeHereAndNowMetrics();
+    const upcoming = buildUpcomingNotificationSchedule(store.appState, m, Date.now());
+    const subRes = await ensureWebPushSubscription(store.currentAccountLogin || '', upcoming);
     updatePushPermissionUI();
-    showToast('Системные уведомления уже включены');
+    showToast(subRes.ok
+      ? 'Фоновые Push-уведомления подключены'
+      : 'Системные уведомления включены');
     evaluateSmartNotifications();
     return;
   }
@@ -759,7 +912,13 @@ export async function requestBrowserPushPermission() {
     const res = await Notification.requestPermission();
     updatePushPermissionUI();
     if (res === 'granted') {
-      showToast('Системные уведомления включены');
+      const m = computeHereAndNowMetrics();
+      const upcoming = buildUpcomingNotificationSchedule(store.appState, m, Date.now());
+      const subRes = await ensureWebPushSubscription(store.currentAccountLogin || '', upcoming);
+      updatePushPermissionUI();
+      showToast(subRes.ok
+        ? 'Фоновые Push-уведомления включены'
+        : 'Системные уведомления включены');
       evaluateSmartNotifications();
     } else if (res === 'denied') {
       showToast('Доступ к уведомлениям отклонён в браузере');
@@ -770,6 +929,29 @@ export async function requestBrowserPushPermission() {
     console.warn('Notification permission error:', err);
     updatePushPermissionUI();
     showToast('Браузер отклонил запрос — откройте приложение в основном окне или как PWA');
+  }
+}
+
+export async function testBackgroundPushUI() {
+  const btn = document.getElementById('push-test-bg-btn');
+  const prevText = btn ? btn.textContent : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Планируем тест...';
+  }
+  try {
+    const res = await sendTestBackgroundPush(5);
+    updatePushPermissionUI();
+    if (res.ok) {
+      showToast('Через 5 секунд придёт Push — сверните приложение или заблокируйте экран');
+    } else {
+      showToast(res.error || 'Не удалось запланировать фоновый тест');
+    }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = prevText || 'Тест в фоне (через 5 сек)';
+    }
   }
 }
 
