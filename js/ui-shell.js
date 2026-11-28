@@ -34,8 +34,7 @@ import {
   showSystemNotification,
   syncScheduledSystemNotifications,
   ensureWebPushSubscription,
-  getWebPushStatus,
-  sendTestBackgroundPush
+  getWebPushStatus
 } from './pwa.js';
 
 export function renderHeaderBabyInfo() {
@@ -666,29 +665,15 @@ export function updatePushPermissionUI() {
   const lbl = document.getElementById('push-status-label');
   const hintEl = document.getElementById('push-platform-hint');
   const btn = document.getElementById('push-perm-btn');
-  const testWrap = document.getElementById('push-test-bg-wrap');
   const info = getNotificationPlatformInfo();
   const pushStatus = getWebPushStatus();
 
-  if (testWrap) {
-    testWrap.classList.toggle('hidden', !(info.supported && info.permission === 'granted' && pushStatus.supported));
-  }
-
   if (hintEl) {
     if (info.isIos && !info.standalone) {
-      hintEl.textContent = 'На iPhone фоновые уведомления работают только после добавления на экран «Домой»: нажмите «Поделиться» в Safari → «На экран „Домой“» и откройте иконку.';
-      hintEl.classList.remove('hidden');
-    } else if (info.inIframe) {
-      hintEl.textContent = 'В окне предпросмотра браузер может ограничивать фоновые Push-уведомления — откройте приложение в отдельной вкладке или установите на телефон как PWA.';
+      hintEl.textContent = 'На iPhone уведомления работают после добавления на экран «Домой»: нажмите «Поделиться» в Safari → «На экран „Домой“» и откройте иконку.';
       hintEl.classList.remove('hidden');
     } else if (info.permission === 'denied') {
       hintEl.textContent = 'Уведомления запрещены в настройках сайта/телефона. Нажмите на значок настроек слева от адреса сайта и разрешите «Уведомления».';
-      hintEl.classList.remove('hidden');
-    } else if (info.permission === 'granted' && !pushStatus.subscribed && !pushStatus.serverAvailable) {
-      hintEl.textContent = 'На статическом хостинге (GitHub Pages) уведомления работают через локальный Service Worker: они придут, когда вкладка открыта или недавно свёрнута. Для Push при полностью закрытом браузере требуется Node-сервер.';
-      hintEl.classList.remove('hidden');
-    } else if (info.permission === 'granted' && !pushStatus.subscribed && pushStatus.lastError) {
-      hintEl.textContent = `Фоновый Push-канал пока не подключился (${pushStatus.lastError}). Убедитесь, что открыто не в режиме инкогнито и не во фрейме.`;
       hintEl.classList.remove('hidden');
     } else {
       hintEl.textContent = '';
@@ -712,22 +697,13 @@ export function updatePushPermissionUI() {
 
   if (info.permission === 'granted') {
     if (lbl) {
-      if (pushStatus.subscribed) {
-        lbl.textContent = 'Фоновый Web Push активен — придут даже в свёрнутом виде';
-        lbl.className = 'text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold';
-      } else if (!pushStatus.serverAvailable) {
-        lbl.textContent = 'Локальные системные уведомления активны (Service Worker)';
-        lbl.className = 'text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold';
-      } else if (pushStatus.supported) {
-        lbl.textContent = 'Разрешено — подключаем фоновый Push-канал...';
-        lbl.className = 'text-[11px] text-sky-600 dark:text-sky-400 font-semibold';
-      } else {
-        lbl.textContent = 'Системные уведомления включены (только пока открыта вкладка)';
-        lbl.className = 'text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold';
-      }
+      lbl.textContent = pushStatus.subscribed
+        ? 'Уведомления активны'
+        : 'Системные уведомления включены';
+      lbl.className = 'text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold';
     }
     if (btn) {
-      btn.textContent = (pushStatus.subscribed || !pushStatus.serverAvailable) ? 'Активно' : 'Включено';
+      btn.textContent = 'Активно';
       btn.disabled = false;
       btn.className = 'px-3 py-1.5 rounded-xl bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 text-[11px] font-bold transition shrink-0';
     }
@@ -903,13 +879,9 @@ export async function requestBrowserPushPermission() {
     await registerAppServiceWorker();
     const m = computeHereAndNowMetrics();
     const upcoming = buildUpcomingNotificationSchedule(store.appState, m, Date.now());
-    const subRes = await ensureWebPushSubscription(store.currentAccountLogin || '', upcoming);
+    await ensureWebPushSubscription(store.currentAccountLogin || '', upcoming);
     updatePushPermissionUI();
-    showToast(subRes.ok
-      ? 'Фоновые Push-уведомления подключены'
-      : subRes.staticOnly
-        ? 'Системные уведомления активны (Service Worker)'
-        : 'Системные уведомления включены');
+    showToast('Системные уведомления активны');
     evaluateSmartNotifications();
     return;
   }
@@ -922,13 +894,9 @@ export async function requestBrowserPushPermission() {
     if (res === 'granted') {
       const m = computeHereAndNowMetrics();
       const upcoming = buildUpcomingNotificationSchedule(store.appState, m, Date.now());
-      const subRes = await ensureWebPushSubscription(store.currentAccountLogin || '', upcoming);
+      await ensureWebPushSubscription(store.currentAccountLogin || '', upcoming);
       updatePushPermissionUI();
-      showToast(subRes.ok
-        ? 'Фоновые Push-уведомления включены'
-        : subRes.staticOnly
-          ? 'Системные уведомления включены (Service Worker)'
-          : 'Системные уведомления включены');
+      showToast('Системные уведомления включены');
       evaluateSmartNotifications();
     } else if (res === 'denied') {
       showToast('Доступ к уведомлениям отклонён в браузере');
@@ -939,31 +907,6 @@ export async function requestBrowserPushPermission() {
     console.warn('Notification permission error:', err);
     updatePushPermissionUI();
     showToast('Браузер отклонил запрос — откройте приложение в основном окне или как PWA');
-  }
-}
-
-export async function testBackgroundPushUI() {
-  const btn = document.getElementById('push-test-bg-btn');
-  const prevText = btn ? btn.textContent : '';
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = 'Планируем тест...';
-  }
-  try {
-    const res = await sendTestBackgroundPush(5);
-    updatePushPermissionUI();
-    if (res.ok) {
-      showToast(res.via === 'web-push'
-        ? 'Через 5 секунд придёт Push — сверните приложение или заблокируйте экран'
-        : 'Через 5 секунд придёт системное уведомление (Service Worker) — сверните приложение');
-    } else {
-      showToast(res.error || 'Не удалось запланировать фоновый тест');
-    }
-  } finally {
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = prevText || 'Тест в фоне (через 5 сек)';
-    }
   }
 }
 
