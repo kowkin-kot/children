@@ -1299,9 +1299,30 @@ async function startServer(): Promise<void> {
     res.json({ ok: true, delivered: true });
   });
 
-  // Friendly /admin alias
-  app.get('/admin', (_req, res) => {
-    res.redirect('/admin.html');
+  // Return JSON 404 for unknown /api routes instead of falling through to HTML middleware
+  app.use('/api', (_req, res) => {
+    res.status(404).json({ error: 'API endpoint not found.' });
+  });
+
+  // Return JSON for malformed request bodies or unexpected API errors
+  app.use((err: unknown, req: Request, res: Response, next: NextFunction) => {
+    if (req.path.startsWith('/api')) {
+      const status =
+        err && typeof err === 'object' && 'status' in err && typeof (err as { status?: unknown }).status === 'number'
+          ? (err as { status: number }).status
+          : 500;
+      const safeStatus = status >= 400 && status < 600 ? status : 500;
+      res.status(safeStatus).json({
+        error: safeStatus === 400 ? 'Некорректный формат JSON-запроса.' : 'Внутренняя ошибка сервера.',
+      });
+      return;
+    }
+    next(err);
+  });
+
+  // Friendly /admin and /admin/ aliases
+  app.get(['/admin', '/admin/'], (_req, res) => {
+    res.redirect(302, '/admin.html');
   });
 
   const isProd = process.env.NODE_ENV === 'production';

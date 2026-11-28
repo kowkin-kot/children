@@ -5,13 +5,15 @@ import {
   appId,
   LOCAL_ACCOUNTS_KEY,
   FIREBASE_COLLECTION_PATH,
-  LEGACY_FIREBASE_COLLECTION_PATH
+  LEGACY_FIREBASE_COLLECTION_PATH,
+  FIREBASE_ADMIN_CONFIG_PATH
 } from './config.js';
 import { mergeStateWithDefaults, mergeAccountStates } from './state.js';
 import {
   escapeHtml,
   formatDateRu,
   formatDateTimeRu,
+  hashPassword,
   sanitizeForFirestore,
   openModal,
   closeModal,
@@ -22,6 +24,45 @@ import { registerAppServiceWorker, showSystemNotification } from './pwa.js';
 // Сессионный Bearer-токен администратора хранится строго в памяти JS (не в localStorage/sessionStorage)
 let adminToken = null;
 let adminAuthSource = 'unclaimed';
+let adminAuthMode = 'server'; // 'server' (Node /api/admin) | 'firebase' (GitHub Pages + Firestore)
+const FIREBASE_ADMIN_AUTH_DOC_ID = 'auth';
+const ADMIN_PBKDF2_ITERATIONS = 150000;
+const firebaseAuthRateLimit = { failures: 0, lockedUntil: 0 };
+
+function computeRelativeAdminApiPrefix() {
+  try {
+    const pathname = window.location.pathname || '/';
+    // Убираем /admin.html или /admin(/) в конце пути, сохраняя возможный подкаталог (например /children)
+    const dir = pathname
+      .replace(/\/admin\.html$/i, '')
+      .replace(/\/admin\/?$/i, '')
+      .replace(/\/+$/, '');
+    return `${dir}/api/admin`;
+  } catch (_) {
+    return '/api/admin';
+  }
+}
+
+let resolvedAdminApiPrefix = computeRelativeAdminApiPrefix();
+
+function adminApiUrl(endpoint, prefix = resolvedAdminApiPrefix) {
+  const cleanEndpoint = String(endpoint || '').replace(/^\/+/, '');
+  const cleanPrefix = String(prefix || '/api/admin').replace(/\/+$/, '');
+  return `${cleanPrefix}/${cleanEndpoint}`;
+}
+
+function adminFetch(endpoint, options = {}, prefix = resolvedAdminApiPrefix) {
+  const headers = {
+    'Accept': 'application/json',
+    ...(options.headers || {})
+  };
+  return fetch(adminApiUrl(endpoint, prefix), {
+    credentials: 'same-origin',
+    cache: 'no-store',
+    ...options,
+    headers
+  });
+}
 
 const FIREBASE_CDN_BASE = 'https://www.gstatic.com/firebasejs/11.6.1';
 
@@ -342,9 +383,8 @@ async function ensureAdminFirebase() {
 
 async function fetchCloudAccountsFromServer() {
   if (!adminToken) return null;
-  const resp = await fetch('/api/admin/cloud/users', {
-    headers: { 'Authorization': `Bearer ${adminToken}` },
-    cache: 'no-store'
+  const resp = await adminFetch('cloud/users', {
+    headers: { 'Authorization': `Bearer ${adminToken}` }
   });
   if (resp.status === 401) {
     lockAdminPanel('Сессия администратора истекла. Войдите снова.');
@@ -380,23 +420,25 @@ async function fetchAllDatabases() {
     }
   };
 
-  // 1. Сначала загружаем через серверный мост Firestore REST (читает и malysh_accounts, и раннюю accounts)
-  try {
-    const serverResult = await fetchCloudAccountsFromServer();
-    if (serverResult?.unauthorized) return;
-    if (serverResult && Array.isArray(serverResult.users)) {
-      for (const item of serverResult.users) {
-        pushCloudDoc(item, item.collection || 'malysh_accounts');
+  // 1. В серверном режиме сначала загружаем через серверный мост Firestore REST (читает и malysh_accounts, и раннюю accounts)
+  if (adminAuthMode === 'server') {
+    try {
+      const serverResult = await fetchCloudAccountsFromServer();
+      if (serverResult?.unauthorized) return;
+      if (serverResult && Array.isArray(serverResult.users)) {
+        for (const item of serverResult.users) {
+          pushCloudDoc(item, item.collection || 'malysh_accounts');
+        }
+        cloudConnected = true;
+        cloudErrorText = '';
+        loadedViaServer = true;
       }
-      cloudConnected = true;
-      cloudErrorText = '';
-      loadedViaServer = true;
+    } catch (serverErr) {
+      cloudErrorText = serverErr?.message || 'Ошибка серверного запроса Firestore.';
     }
-  } catch (serverErr) {
-    cloudErrorText = serverErr?.message || 'Ошибка серверного запроса Firestore.';
   }
 
-  // 2. Резервное подключение напрямую через встроенный Firebase Web SDK (обе коллекции)
+  // 2. Прямое подключение через официальный Firebase Web SDK (основной режим на GitHub Pages и резервный при сбое REST-моста)
   if (!loadedViaServer) {
     const ok = await ensureAdminFirebase();
     if (ok && fbDb && fbFirestoreSdk) {
@@ -825,25 +867,39 @@ async function handleChangeUserPassword(e) {
       reqPayload.fallbackCreatedAt = user.createdAt || Date.now();
     }
 
-    // 1. Обновляем пароль на сервере и напрямую в Firestore через REST API
-    const resp = await fetch('/api/admin/cloud/user-password', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${adminToken}`
-      },
-      body: JSON.stringify(reqPayload)
-    });
+    let data = null;
+    if (adminAuthMode === 'server') {
+      // 1. Обновляем пароль на сервере и напрямую в Firestore через REST API
+      const resp = await adminFetch('cloud/user-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${adminToken}`
+        },
+        body: JSON.stringify(reqPayload)
+      });
 
-    const data = await resp.json().catch(() => ({}));
-    if (resp.status === 401) {
-      closeModal('modal-admin-password');
-      lockAdminPanel('Сессия администратора истекла. Войдите снова.');
-      return;
-    }
-    if (!resp.ok || !data.passHash) {
-      showErr(data.error || 'Не удалось обновить пароль.');
-      return;
+      data = await resp.json().catch(() => ({}));
+      if (resp.status === 401) {
+        closeModal('modal-admin-password');
+        lockAdminPanel('Сессия администратора истекла. Войдите снова.');
+        return;
+      }
+      if (!resp.ok || !data.passHash) {
+        showErr(data.error || 'Не удалось обновить пароль.');
+        return;
+      }
+    } else {
+      // Режим GitHub Pages (без Node-сервера): хэшируем пароль по формату входа и записываем напрямую в Firestore
+      const passHash = await hashPassword(newPassword);
+      data = {
+        ok: true,
+        login,
+        passHash,
+        changedAt: Date.now(),
+        cloudUpdated: false,
+        updatedCollections: []
+      };
     }
 
     const updatedTargets = [];
@@ -853,7 +909,7 @@ async function handleChangeUserPassword(e) {
         : 'Firestore';
       updatedTargets.push(colsLabel);
     } else if (syncToCloud && cloudConnected) {
-      // Резервная запись через клиентский Firebase SDK
+      // Запись через клиентский Firebase SDK
       const sdkOk = await ensureAdminFirebase();
       if (sdkOk && fbDb && fbFirestoreSdk) {
         try {
@@ -1042,28 +1098,44 @@ async function syncSelectedLocalUserToCloud() {
   }
 
   try {
-    const resp = await fetch('/api/admin/cloud/sync-user', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${adminToken}`
-      },
-      body: JSON.stringify({
+    if (adminAuthMode === 'server') {
+      const resp = await adminFetch('cloud/sync-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${adminToken}`
+        },
+        body: JSON.stringify({
+          login: user.login,
+          state: sanitizeForFirestore(user.localDoc.state || {}),
+          passHash: user.localDoc.passHash || '',
+          createdAt: user.createdAt || Date.now(),
+          updatedAt: user.updatedAt || Date.now()
+        })
+      });
+      if (resp.status === 401) {
+        closeModal('modal-admin-user-details');
+        lockAdminPanel('Сессия администратора истекла. Войдите снова.');
+        return;
+      }
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        throw new Error(data.error || 'Ошибка синхронизации');
+      }
+    } else {
+      const sdkOk = await ensureAdminFirebase();
+      if (!sdkOk || !fbDb || !fbFirestoreSdk) {
+        throw new Error(cloudErrorText || 'Нет подключения к Firestore');
+      }
+      const accRef = fbFirestoreSdk.doc(fbDb, ...FIREBASE_COLLECTION_PATH, user.login);
+      const payload = {
         login: user.login,
         state: sanitizeForFirestore(user.localDoc.state || {}),
-        passHash: user.localDoc.passHash || '',
         createdAt: user.createdAt || Date.now(),
         updatedAt: user.updatedAt || Date.now()
-      })
-    });
-    if (resp.status === 401) {
-      closeModal('modal-admin-user-details');
-      lockAdminPanel('Сессия администратора истекла. Войдите снова.');
-      return;
-    }
-    const data = await resp.json().catch(() => ({}));
-    if (!resp.ok) {
-      throw new Error(data.error || 'Ошибка синхронизации');
+      };
+      if (user.localDoc.passHash) payload.passHash = user.localDoc.passHash;
+      await fbFirestoreSdk.setDoc(accRef, payload, { merge: true });
     }
 
     showToast(`Аккаунт @${user.login} синхронизирован в Firestore`);
@@ -1072,6 +1144,111 @@ async function syncSelectedLocalUserToCloud() {
   } catch (err) {
     showToast(`Ошибка синхронизации: ${err?.message || 'нет доступа'}`);
   }
+}
+
+async function runMergeAccountsViaFirebase(mode, singleLogin, deleteLegacyAfterMerge) {
+  const sdkOk = await ensureAdminFirebase();
+  if (!sdkOk || !fbDb || !fbFirestoreSdk) {
+    throw new Error(cloudErrorText || 'Нет подключения к Firestore');
+  }
+
+  const [primarySnap, legacySnap] = await Promise.all([
+    fbFirestoreSdk.getDocs(fbFirestoreSdk.collection(fbDb, ...FIREBASE_COLLECTION_PATH)),
+    fbFirestoreSdk.getDocs(fbFirestoreSdk.collection(fbDb, ...LEGACY_FIREBASE_COLLECTION_PATH))
+  ]);
+
+  const primaryByLogin = new Map();
+  primarySnap.forEach((docSnap) => {
+    const d = { ...(docSnap.data() || {}), docId: docSnap.id };
+    const key = String(d.login || d.docId || '').trim();
+    if (key) primaryByLogin.set(key, d);
+  });
+
+  const legacyByLogin = new Map();
+  legacySnap.forEach((docSnap) => {
+    const d = { ...(docSnap.data() || {}), docId: docSnap.id };
+    const key = String(d.login || d.docId || '').trim();
+    if (key) legacyByLogin.set(key, d);
+  });
+
+  let targetLogins = [];
+  if (singleLogin) {
+    if (!legacyByLogin.has(singleLogin)) {
+      throw new Error(`Аккаунт @${singleLogin} отсутствует в коллекции accounts.`);
+    }
+    targetLogins = [singleLogin];
+  } else if (mode === 'all_legacy') {
+    targetLogins = Array.from(legacyByLogin.keys());
+  } else {
+    targetLogins = Array.from(legacyByLogin.keys()).filter((k) => primaryByLogin.has(k));
+  }
+
+  const mergedLogins = [];
+  let deletedLegacyCount = 0;
+  const errors = [];
+
+  for (const targetLogin of targetLogins) {
+    try {
+      const legacyDoc = legacyByLogin.get(targetLogin);
+      const primaryDoc = primaryByLogin.get(targetLogin);
+      if (!legacyDoc) continue;
+
+      const orderedStates = [];
+      if (legacyDoc.state && typeof legacyDoc.state === 'object') orderedStates.push(legacyDoc.state);
+      if (primaryDoc?.state && typeof primaryDoc.state === 'object') orderedStates.push(primaryDoc.state);
+
+      const { state: unifiedState } = mergeAccountStates(orderedStates);
+      const primaryHash = (typeof primaryDoc?.passHash === 'string' && primaryDoc.passHash)
+        ? primaryDoc.passHash
+        : (typeof primaryDoc?.passwordHash === 'string' ? primaryDoc.passwordHash : '');
+      const legacyHash = (typeof legacyDoc.passHash === 'string' && legacyDoc.passHash)
+        ? legacyDoc.passHash
+        : (typeof legacyDoc.passwordHash === 'string' ? legacyDoc.passwordHash : '');
+
+      const pChanged = toTimestampMs(primaryDoc?.passwordChangedAt) || 0;
+      const lChanged = toTimestampMs(legacyDoc.passwordChangedAt) || 0;
+      const resolvedHash = (lChanged > pChanged && legacyHash) ? legacyHash : (primaryHash || legacyHash || '');
+
+      const createdCandidates = [
+        toTimestampMs(primaryDoc?.createdAt),
+        toTimestampMs(legacyDoc.createdAt),
+        toTimestampMs(legacyDoc.state?.accountCreatedAt),
+        toTimestampMs(primaryDoc?.state?.accountCreatedAt)
+      ].filter(Boolean);
+      const resolvedCreatedAt = createdCandidates.length > 0 ? Math.min(...createdCandidates) : Date.now();
+      const nowMs = Date.now();
+
+      const payload = {
+        login: targetLogin,
+        state: sanitizeForFirestore(unifiedState),
+        createdAt: resolvedCreatedAt,
+        updatedAt: nowMs
+      };
+      if (resolvedHash) payload.passHash = resolvedHash;
+      const maxPwChanged = Math.max(pChanged, lChanged);
+      if (maxPwChanged > 0) payload.passwordChangedAt = maxPwChanged;
+
+      const targetDocId = primaryDoc?.docId || targetLogin;
+      const targetRef = fbFirestoreSdk.doc(fbDb, ...FIREBASE_COLLECTION_PATH, targetDocId);
+      await fbFirestoreSdk.setDoc(targetRef, payload, { merge: true });
+      mergedLogins.push(targetLogin);
+
+      if (deleteLegacyAfterMerge && typeof fbFirestoreSdk.deleteDoc === 'function') {
+        const legacyDocId = legacyDoc.docId || targetLogin;
+        const legacyRef = fbFirestoreSdk.doc(fbDb, ...LEGACY_FIREBASE_COLLECTION_PATH, legacyDocId);
+        await fbFirestoreSdk.deleteDoc(legacyRef);
+        deletedLegacyCount += 1;
+      }
+    } catch (err) {
+      errors.push({ login: targetLogin, error: err?.message || 'Ошибка объединения' });
+    }
+  }
+
+  return {
+    mergedCount: mergedLogins.length,
+    deletedLegacyCount,
+    errors
+  };
 }
 
 async function runMergeAccounts(mode, singleLogin = '') {
@@ -1086,25 +1263,30 @@ async function runMergeAccounts(mode, singleLogin = '') {
   if (allBtn) allBtn.disabled = true;
 
   try {
-    const resp = await fetch('/api/admin/cloud/merge-duplicates', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${adminToken}`
-      },
-      body: JSON.stringify({
-        mode,
-        login: singleLogin || undefined,
-        deleteLegacyAfterMerge
-      })
-    });
-    if (resp.status === 401) {
-      lockAdminPanel('Сессия администратора истекла. Войдите снова.');
-      return;
-    }
-    const data = await resp.json().catch(() => ({}));
-    if (!resp.ok) {
-      throw new Error(data.error || 'Не удалось выполнить объединение');
+    let data;
+    if (adminAuthMode === 'server') {
+      const resp = await adminFetch('cloud/merge-duplicates', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${adminToken}`
+        },
+        body: JSON.stringify({
+          mode,
+          login: singleLogin || undefined,
+          deleteLegacyAfterMerge
+        })
+      });
+      if (resp.status === 401) {
+        lockAdminPanel('Сессия администратора истекла. Войдите снова.');
+        return;
+      }
+      data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        throw new Error(data.error || 'Не удалось выполнить объединение');
+      }
+    } else {
+      data = await runMergeAccountsViaFirebase(mode, singleLogin, deleteLegacyAfterMerge);
     }
 
     const delNote = data.deletedLegacyCount > 0 ? `, удалено копий из accounts: ${data.deletedLegacyCount}` : '';
@@ -1148,21 +1330,228 @@ function lockAdminPanel(message = '') {
   checkAdminAuthStatus();
 }
 
+function setAdminRetryVisible(visible) {
+  document.getElementById('admin-auth-retry-wrap')?.classList.toggle('hidden', !visible);
+}
+
+function waitMs(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function probeAdminStatusOnce() {
+  const candidates = [];
+  const relativePrefix = computeRelativeAdminApiPrefix();
+  candidates.push(relativePrefix);
+  if (relativePrefix !== '/api/admin') {
+    candidates.push('/api/admin');
+  }
+
+  let lastFailure = { kind: 'network', status: 0, message: 'Сервер авторизации недоступен' };
+
+  for (const prefix of candidates) {
+    try {
+      const resp = await adminFetch('status', {}, prefix);
+      const contentType = (resp.headers.get('content-type') || '').toLowerCase();
+
+      if (resp.ok) {
+        if (!contentType.includes('application/json')) {
+          lastFailure = { kind: 'non_json', status: resp.status };
+          continue;
+        }
+        const data = await resp.json().catch(() => null);
+        if (!data || typeof data.source !== 'string') {
+          lastFailure = { kind: 'non_json', status: resp.status };
+          continue;
+        }
+        resolvedAdminApiPrefix = prefix;
+        return { ok: true, data };
+      }
+
+      if (resp.status === 404) {
+        lastFailure = { kind: 'not_found', status: 404 };
+        continue;
+      }
+
+      if (resp.status === 401 || resp.status === 403) {
+        lastFailure = { kind: 'proxy_auth', status: resp.status };
+        return { ok: false, failure: lastFailure, retryable: false };
+      }
+
+      if (resp.status === 502 || resp.status === 503 || resp.status === 504 || resp.status === 429) {
+        lastFailure = { kind: 'transient', status: resp.status };
+        return { ok: false, failure: lastFailure, retryable: true };
+      }
+
+      lastFailure = { kind: 'http', status: resp.status };
+      return { ok: false, failure: lastFailure, retryable: resp.status >= 500 };
+    } catch (_) {
+      lastFailure = { kind: 'network', status: 0 };
+      return { ok: false, failure: lastFailure, retryable: true };
+    }
+  }
+
+  return { ok: false, failure: lastFailure, retryable: false };
+}
+
+function formatAdminStatusFailure(failure) {
+  if (!failure) {
+    return 'Сервер авторизации недоступен. Попробуйте повторить проверку через несколько секунд.';
+  }
+  if (failure.kind === 'not_found' || failure.kind === 'non_json') {
+    return 'Сервер авторизации (/api/admin/status) не запущен на этом домене. Админ-панель работает только при открытии приложения через его Node.js-сервер (например, в превью или на Cloud Run), а не на статическом хостинге (например, GitHub Pages).';
+  }
+  if (failure.kind === 'proxy_auth') {
+    return `Доступ к серверу авторизации отклонён (HTTP ${failure.status}). Если приложение открыто во встроенном окне, попробуйте открыть его в отдельной вкладке браузера.`;
+  }
+  if (failure.kind === 'transient') {
+    return `Сервер авторизации сейчас запускается или временно недоступен (HTTP ${failure.status}). Подождите пару секунд и нажмите «Повторить проверку».`;
+  }
+  if (failure.kind === 'network') {
+    return 'Не удалось подключиться к серверу авторизации (ошибка сети). Проверьте интернет-соединение и нажмите «Повторить проверку».';
+  }
+  return `Сервер авторизации вернул ошибку (HTTP ${failure.status || '?'}). Попробуйте повторить проверку.`;
+}
+
+function generateRandomHex(byteLen = 16) {
+  const bytes = new Uint8Array(byteLen);
+  if (typeof window !== 'undefined' && window.crypto?.getRandomValues) {
+    window.crypto.getRandomValues(bytes);
+  } else {
+    throw new Error('Браузер не поддерживает криптографически стойкий генератор случайных чисел.');
+  }
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function hexToBytes(hex) {
+  const clean = String(hex || '').trim();
+  const out = new Uint8Array(Math.floor(clean.length / 2));
+  for (let i = 0; i < out.length; i += 1) {
+    out[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16) || 0;
+  }
+  return out;
+}
+
+function constantTimeEqualHex(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length === 0 || a.length !== b.length) {
+    return false;
+  }
+  let diff = 0;
+  for (let i = 0; i < a.length; i += 1) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
+async function deriveAdminPbkdf2Hex(password, saltHex, iterations = ADMIN_PBKDF2_ITERATIONS) {
+  if (!window.crypto?.subtle) {
+    throw new Error('Для входа в админ-панель на статическом хостинге требуется защищённое HTTPS-соединение (Web Crypto API).');
+  }
+  const enc = new TextEncoder();
+  const baseKey = await window.crypto.subtle.importKey(
+    'raw',
+    enc.encode(String(password || '')),
+    { name: 'PBKDF2' },
+    false,
+    ['deriveBits']
+  );
+  const safeIterations = Math.max(100000, Math.min(500000, Number(iterations) || ADMIN_PBKDF2_ITERATIONS));
+  const derived = await window.crypto.subtle.deriveBits(
+    {
+      name: 'PBKDF2',
+      salt: hexToBytes(saltHex),
+      iterations: safeIterations,
+      hash: 'SHA-256'
+    },
+    baseKey,
+    256
+  );
+  return Array.from(new Uint8Array(derived), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function checkFirebaseRateLimitError() {
+  const now = Date.now();
+  if (firebaseAuthRateLimit.lockedUntil > now) {
+    const waitSec = Math.ceil((firebaseAuthRateLimit.lockedUntil - now) / 1000);
+    return `Слишком много неверных попыток. Повторите через ${waitSec} сек.`;
+  }
+  return '';
+}
+
+function recordFirebaseAuthFailure() {
+  firebaseAuthRateLimit.failures += 1;
+  if (firebaseAuthRateLimit.failures >= 5) {
+    const penaltySec = Math.min(300, 60 * (firebaseAuthRateLimit.failures - 4));
+    firebaseAuthRateLimit.lockedUntil = Date.now() + penaltySec * 1000;
+  }
+}
+
+function resetFirebaseAuthFailures() {
+  firebaseAuthRateLimit.failures = 0;
+  firebaseAuthRateLimit.lockedUntil = 0;
+}
+
+async function readFirebaseAdminAuthDoc() {
+  const ok = await ensureAdminFirebase();
+  if (!ok || !fbDb || !fbFirestoreSdk) {
+    throw new Error(cloudErrorText || 'Не удалось подключиться к облачной базе Firestore.');
+  }
+  const authRef = fbFirestoreSdk.doc(fbDb, ...FIREBASE_ADMIN_CONFIG_PATH, FIREBASE_ADMIN_AUTH_DOC_ID);
+  const snap = await fbFirestoreSdk.getDoc(authRef);
+  if (!snap.exists()) return null;
+  const data = snap.data() || {};
+  if (typeof data.saltHex !== 'string' || typeof data.hashHex !== 'string' || !data.saltHex || !data.hashHex) {
+    return null;
+  }
+  return data;
+}
+
+async function writeFirebaseAdminAuthDoc(record) {
+  const ok = await ensureAdminFirebase();
+  if (!ok || !fbDb || !fbFirestoreSdk) {
+    throw new Error(cloudErrorText || 'Не удалось подключиться к облачной базе Firestore.');
+  }
+  const authRef = fbFirestoreSdk.doc(fbDb, ...FIREBASE_ADMIN_CONFIG_PATH, FIREBASE_ADMIN_AUTH_DOC_ID);
+  await fbFirestoreSdk.setDoc(authRef, record, { merge: true });
+}
+
 async function checkAdminAuthStatus() {
   const subtitle = document.getElementById('admin-auth-subtitle');
   const claimForm = document.getElementById('admin-claim-form');
+  const claimHint = document.getElementById('admin-claim-hint');
   const loginForm = document.getElementById('admin-login-form');
   const sourceTag = document.getElementById('admin-auth-source-tag');
+  const retryBtn = document.getElementById('admin-auth-retry-btn');
 
-  try {
-    const resp = await fetch('/api/admin/status', { cache: 'no-store' });
-    if (!resp.ok) throw new Error('Сервер авторизации недоступен');
-    const data = await resp.json();
+  if (subtitle) subtitle.textContent = 'Проверка статуса панели администратора...';
+  showAdminAuthError('');
+  setAdminRetryVisible(false);
+  if (retryBtn) retryBtn.disabled = true;
+
+  const retryDelays = [0, 800, 1600];
+  let result = null;
+
+  for (let i = 0; i < retryDelays.length; i += 1) {
+    if (retryDelays[i] > 0) {
+      if (subtitle) subtitle.textContent = 'Подключение к серверу авторизации...';
+      await waitMs(retryDelays[i]);
+    }
+    result = await probeAdminStatusOnce();
+    if (result.ok || !result.retryable) break;
+  }
+
+  // 1. Серверный режим (Node.js / Express)
+  if (result && result.ok) {
+    if (retryBtn) retryBtn.disabled = false;
+    adminAuthMode = 'server';
+    const data = result.data;
     adminAuthSource = data.source || 'unclaimed';
 
     if (adminAuthSource === 'unclaimed') {
       if (subtitle) subtitle.textContent = 'Первичная настройка доступа к управлению БД';
       if (sourceTag) sourceTag.textContent = 'Первичная настройка';
+      if (claimHint) {
+        claimHint.textContent = 'Пароль администратора ещё не задан. Придумайте пароль сейчас, чтобы защитить доступ к базам данных (или задайте ADMIN_PASSWORD в секретах проекта).';
+      }
       claimForm?.classList.remove('hidden');
       loginForm?.classList.add('hidden');
     } else {
@@ -1172,10 +1561,55 @@ async function checkAdminAuthStatus() {
       loginForm?.classList.remove('hidden');
       setTimeout(() => document.getElementById('admin-login-pass')?.focus(), 50);
     }
-  } catch (err) {
-    if (subtitle) subtitle.textContent = 'Не удалось связаться с сервером авторизации';
-    showAdminAuthError(err?.message || 'Проверьте, что сервер приложения запущен.');
+    return;
   }
+
+  // 2. Статический хостинг (GitHub Pages и т.п.): /api/admin/status возвращает 404 или HTML — переключаемся на Firestore
+  const isStaticHost = result?.failure?.kind === 'not_found' || result?.failure?.kind === 'non_json';
+  if (isStaticHost) {
+    if (subtitle) subtitle.textContent = 'Подключение к облачной базе Firestore...';
+    try {
+      const authDoc = await readFirebaseAdminAuthDoc();
+      if (retryBtn) retryBtn.disabled = false;
+      adminAuthMode = 'firebase';
+
+      if (!authDoc) {
+        adminAuthSource = 'unclaimed';
+        if (subtitle) subtitle.textContent = 'Первичная настройка доступа к управлению БД';
+        if (sourceTag) sourceTag.textContent = 'Firestore • Настройка';
+        if (claimHint) {
+          claimHint.textContent = 'Сайт работает на статическом хостинге (GitHub Pages). Придумайте пароль администратора — его защищённый хэш (PBKDF2) сохранится в Firestore.';
+        }
+        claimForm?.classList.remove('hidden');
+        loginForm?.classList.add('hidden');
+      } else {
+        adminAuthSource = 'firebase';
+        if (subtitle) subtitle.textContent = 'Вход в панель управления базами данных';
+        if (sourceTag) sourceTag.textContent = 'Firestore (GitHub Pages)';
+        claimForm?.classList.add('hidden');
+        loginForm?.classList.remove('hidden');
+        setTimeout(() => document.getElementById('admin-login-pass')?.focus(), 50);
+      }
+      return;
+    } catch (fbErr) {
+      if (retryBtn) retryBtn.disabled = false;
+      claimForm?.classList.add('hidden');
+      loginForm?.classList.add('hidden');
+      if (subtitle) subtitle.textContent = 'Не удалось подключиться к Firestore';
+      if (sourceTag) sourceTag.textContent = 'Ошибка Firestore';
+      showAdminAuthError(fbErr?.message || 'Проверьте интернет-соединение и доступ к Firebase Firestore.');
+      setAdminRetryVisible(true);
+      return;
+    }
+  }
+
+  if (retryBtn) retryBtn.disabled = false;
+  claimForm?.classList.add('hidden');
+  loginForm?.classList.add('hidden');
+  if (subtitle) subtitle.textContent = 'Не удалось связаться с сервером авторизации';
+  if (sourceTag) sourceTag.textContent = result?.failure?.status ? `HTTP ${result.failure.status}` : 'Нет связи';
+  showAdminAuthError(formatAdminStatusFailure(result?.failure));
+  setAdminRetryVisible(true);
 }
 
 async function handleClaimSubmit(e) {
@@ -1186,8 +1620,8 @@ async function handleClaimSubmit(e) {
   const confirm = document.getElementById('admin-claim-confirm')?.value || '';
   const btn = document.getElementById('admin-claim-btn');
 
-  if (pass.length < 6) {
-    showAdminAuthError('Пароль администратора должен содержать минимум 6 символов.');
+  if (pass.length < 6 || pass.length > 128) {
+    showAdminAuthError('Пароль администратора должен содержать от 6 до 128 символов.');
     return;
   }
   if (pass !== confirm) {
@@ -1197,7 +1631,33 @@ async function handleClaimSubmit(e) {
 
   if (btn) btn.disabled = true;
   try {
-    const resp = await fetch('/api/admin/claim', {
+    if (adminAuthMode === 'firebase') {
+      const existing = await readFirebaseAdminAuthDoc();
+      if (existing) {
+        showAdminAuthError('Пароль администратора уже настроен. Войдите с текущим паролем.');
+        checkAdminAuthStatus();
+        return;
+      }
+      const saltHex = generateRandomHex(16);
+      const hashHex = await deriveAdminPbkdf2Hex(pass, saltHex, ADMIN_PBKDF2_ITERATIONS);
+      const now = Date.now();
+      await writeFirebaseAdminAuthDoc({
+        algo: 'pbkdf2-sha256',
+        iterations: ADMIN_PBKDF2_ITERATIONS,
+        saltHex,
+        hashHex,
+        createdAt: now,
+        updatedAt: now
+      });
+      adminAuthSource = 'firebase';
+      adminToken = `fb_${generateRandomHex(24)}`;
+      resetFirebaseAuthFailures();
+      showToast('Пароль администратора установлен');
+      unlockAdminPanel();
+      return;
+    }
+
+    const resp = await adminFetch('claim', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ password: pass })
@@ -1208,6 +1668,7 @@ async function handleClaimSubmit(e) {
       if (resp.status === 409) checkAdminAuthStatus();
       return;
     }
+    adminAuthSource = data.source || 'claimed';
     adminToken = data.token;
     showToast('Пароль администратора установлен');
     unlockAdminPanel();
@@ -1232,7 +1693,33 @@ async function handleLoginSubmit(e) {
 
   if (btn) btn.disabled = true;
   try {
-    const resp = await fetch('/api/admin/login', {
+    if (adminAuthMode === 'firebase') {
+      const rateErr = checkFirebaseRateLimitError();
+      if (rateErr) {
+        showAdminAuthError(rateErr);
+        return;
+      }
+      const authDoc = await readFirebaseAdminAuthDoc();
+      if (!authDoc) {
+        showAdminAuthError('Пароль администратора ещё не настроен.');
+        checkAdminAuthStatus();
+        return;
+      }
+      const candidateHex = await deriveAdminPbkdf2Hex(pass, authDoc.saltHex, authDoc.iterations);
+      if (!constantTimeEqualHex(candidateHex, authDoc.hashHex)) {
+        recordFirebaseAuthFailure();
+        showAdminAuthError(checkFirebaseRateLimitError() || 'Неверный пароль администратора.');
+        return;
+      }
+      resetFirebaseAuthFailures();
+      adminAuthSource = 'firebase';
+      adminToken = `fb_${generateRandomHex(24)}`;
+      showToast('Добро пожаловать в панель администратора');
+      unlockAdminPanel();
+      return;
+    }
+
+    const resp = await adminFetch('login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ password: pass })
@@ -1242,6 +1729,7 @@ async function handleLoginSubmit(e) {
       showAdminAuthError(data.error || 'Неверный пароль администратора.');
       return;
     }
+    adminAuthSource = data.source || adminAuthSource;
     adminToken = data.token;
     showToast('Добро пожаловать в панель администратора');
     unlockAdminPanel();
@@ -1253,9 +1741,9 @@ async function handleLoginSubmit(e) {
 }
 
 async function handleAdminLogout() {
-  if (adminToken) {
+  if (adminToken && adminAuthMode === 'server') {
     try {
-      await fetch('/api/admin/logout', {
+      await adminFetch('logout', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${adminToken}` }
       });
@@ -1344,7 +1832,40 @@ async function handleChangeAdminSelfPassword(e) {
   }
 
   try {
-    const resp = await fetch('/api/admin/change-password', {
+    if (adminAuthMode === 'firebase') {
+      const rateErr = checkFirebaseRateLimitError();
+      if (rateErr) {
+        showErr(rateErr);
+        return;
+      }
+      const authDoc = await readFirebaseAdminAuthDoc();
+      if (!authDoc) {
+        showErr('Запись пароля администратора не найдена в Firestore.');
+        return;
+      }
+      const currentHex = await deriveAdminPbkdf2Hex(currentPassword, authDoc.saltHex, authDoc.iterations);
+      if (!constantTimeEqualHex(currentHex, authDoc.hashHex)) {
+        recordFirebaseAuthFailure();
+        showErr(checkFirebaseRateLimitError() || 'Неверный текущий пароль администратора.');
+        return;
+      }
+      resetFirebaseAuthFailures();
+      const newSaltHex = generateRandomHex(16);
+      const newHashHex = await deriveAdminPbkdf2Hex(newPassword, newSaltHex, ADMIN_PBKDF2_ITERATIONS);
+      await writeFirebaseAdminAuthDoc({
+        algo: 'pbkdf2-sha256',
+        iterations: ADMIN_PBKDF2_ITERATIONS,
+        saltHex: newSaltHex,
+        hashHex: newHashHex,
+        updatedAt: Date.now()
+      });
+      adminToken = `fb_${generateRandomHex(24)}`;
+      closeModal('modal-admin-self-password');
+      showToast('Пароль администратора изменён');
+      return;
+    }
+
+    const resp = await adminFetch('change-password', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1383,6 +1904,9 @@ function bindEvents() {
   document.getElementById('admin-login-form')?.addEventListener('submit', handleLoginSubmit);
   document.getElementById('admin-change-pw-form')?.addEventListener('submit', handleChangeUserPassword);
   document.getElementById('admin-self-pw-form')?.addEventListener('submit', handleChangeAdminSelfPassword);
+  document.getElementById('admin-auth-retry-btn')?.addEventListener('click', () => {
+    checkAdminAuthStatus();
+  });
 
   document.getElementById('admin-toggle-login-vis')?.addEventListener('click', () => {
     const inp = document.getElementById('admin-login-pass');
