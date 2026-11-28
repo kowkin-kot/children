@@ -684,6 +684,9 @@ export function updatePushPermissionUI() {
     } else if (info.permission === 'denied') {
       hintEl.textContent = 'Уведомления запрещены в настройках сайта/телефона. Нажмите на значок настроек слева от адреса сайта и разрешите «Уведомления».';
       hintEl.classList.remove('hidden');
+    } else if (info.permission === 'granted' && !pushStatus.subscribed && !pushStatus.serverAvailable) {
+      hintEl.textContent = 'На статическом хостинге (GitHub Pages) уведомления работают через локальный Service Worker: они придут, когда вкладка открыта или недавно свёрнута. Для Push при полностью закрытом браузере требуется Node-сервер.';
+      hintEl.classList.remove('hidden');
     } else if (info.permission === 'granted' && !pushStatus.subscribed && pushStatus.lastError) {
       hintEl.textContent = `Фоновый Push-канал пока не подключился (${pushStatus.lastError}). Убедитесь, что открыто не в режиме инкогнито и не во фрейме.`;
       hintEl.classList.remove('hidden');
@@ -712,6 +715,9 @@ export function updatePushPermissionUI() {
       if (pushStatus.subscribed) {
         lbl.textContent = 'Фоновый Web Push активен — придут даже в свёрнутом виде';
         lbl.className = 'text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold';
+      } else if (!pushStatus.serverAvailable) {
+        lbl.textContent = 'Локальные системные уведомления активны (Service Worker)';
+        lbl.className = 'text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold';
       } else if (pushStatus.supported) {
         lbl.textContent = 'Разрешено — подключаем фоновый Push-канал...';
         lbl.className = 'text-[11px] text-sky-600 dark:text-sky-400 font-semibold';
@@ -721,7 +727,7 @@ export function updatePushPermissionUI() {
       }
     }
     if (btn) {
-      btn.textContent = pushStatus.subscribed ? 'Активно' : 'Включено';
+      btn.textContent = (pushStatus.subscribed || !pushStatus.serverAvailable) ? 'Активно' : 'Включено';
       btn.disabled = false;
       btn.className = 'px-3 py-1.5 rounded-xl bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 text-[11px] font-bold transition shrink-0';
     }
@@ -901,7 +907,9 @@ export async function requestBrowserPushPermission() {
     updatePushPermissionUI();
     showToast(subRes.ok
       ? 'Фоновые Push-уведомления подключены'
-      : 'Системные уведомления включены');
+      : subRes.staticOnly
+        ? 'Системные уведомления активны (Service Worker)'
+        : 'Системные уведомления включены');
     evaluateSmartNotifications();
     return;
   }
@@ -918,7 +926,9 @@ export async function requestBrowserPushPermission() {
       updatePushPermissionUI();
       showToast(subRes.ok
         ? 'Фоновые Push-уведомления включены'
-        : 'Системные уведомления включены');
+        : subRes.staticOnly
+          ? 'Системные уведомления включены (Service Worker)'
+          : 'Системные уведомления включены');
       evaluateSmartNotifications();
     } else if (res === 'denied') {
       showToast('Доступ к уведомлениям отклонён в браузере');
@@ -943,7 +953,9 @@ export async function testBackgroundPushUI() {
     const res = await sendTestBackgroundPush(5);
     updatePushPermissionUI();
     if (res.ok) {
-      showToast('Через 5 секунд придёт Push — сверните приложение или заблокируйте экран');
+      showToast(res.via === 'web-push'
+        ? 'Через 5 секунд придёт Push — сверните приложение или заблокируйте экран'
+        : 'Через 5 секунд придёт системное уведомление (Service Worker) — сверните приложение');
     } else {
       showToast(res.error || 'Не удалось запланировать фоновый тест');
     }

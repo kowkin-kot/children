@@ -104,6 +104,20 @@ self.addEventListener('message', (event) => {
     return;
   }
 
+  if (msg.type === 'SCHEDULE_TEST_NOTIFICATION') {
+    const rawDelay = Number(msg.delaySec);
+    const delayMs = Number.isFinite(rawDelay) ? Math.max(0, Math.min(25, rawDelay)) * 1000 : 5000;
+    const payload = (msg.payload && typeof msg.payload === 'object') ? msg.payload : {};
+    event.waitUntil(
+      new Promise((resolve) => {
+        setTimeout(() => {
+          dispatchSystemNotification(payload).catch(() => {}).finally(resolve);
+        }, delayMs);
+      })
+    );
+    return;
+  }
+
   if (msg.type === 'SCHEDULE_NOTIFICATIONS') {
     event.waitUntil(syncScheduledItems(msg.items || []).catch(() => {}));
     return;

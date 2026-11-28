@@ -17,6 +17,7 @@ let activeWebPushEndpoint = '';
 let lastWebPushError = '';
 let lastServerScheduleSig = '';
 let activeWebPushPromise = null;
+let pushBackendState = 'unknown'; // 'unknown' | 'available' | 'static-unavailable'
 
 function urlBase64ToUint8Array(base64String) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -38,15 +39,43 @@ function uint8ArraysEqual(a, b) {
 }
 
 async function fetchServerVapidPublicKey() {
+  if (pushBackendState === 'static-unavailable') {
+    const err = new Error('STATIC_NO_SERVER');
+    err.isStaticNoServer = true;
+    throw err;
+  }
   if (cachedVapidPublicKey) return cachedVapidPublicKey;
-  const resp = await fetch('./api/push/public-key', { cache: 'no-store' });
+
+  const resp = await fetch('./api/push/public-key', {
+    cache: 'no-store',
+    headers: { 'Accept': 'application/json' }
+  });
+  const contentType = (resp.headers.get('content-type') || '').toLowerCase();
+
+  // Статический хостинг (GitHub Pages и т.п.): 404 или HTML вместо JSON
+  if (resp.status === 404 || (resp.ok && !contentType.includes('application/json'))) {
+    pushBackendState = 'static-unavailable';
+    lastWebPushError = '';
+    const err = new Error('STATIC_NO_SERVER');
+    err.isStaticNoServer = true;
+    throw err;
+  }
+
   if (!resp.ok) {
     throw new Error(`Push key HTTP ${resp.status}`);
   }
-  const data = await resp.json();
+  const data = await resp.json().catch(() => null);
   if (!data || typeof data.publicKey !== 'string' || !data.publicKey) {
+    if (contentType && !contentType.includes('application/json')) {
+      pushBackendState = 'static-unavailable';
+      lastWebPushError = '';
+      const err = new Error('STATIC_NO_SERVER');
+      err.isStaticNoServer = true;
+      throw err;
+    }
     throw new Error('Сервер не вернул VAPID-ключ');
   }
+  pushBackendState = 'available';
   cachedVapidPublicKey = data.publicKey;
   return cachedVapidPublicKey;
 }
@@ -60,7 +89,9 @@ export function getWebPushStatus() {
   return {
     supported: pushSupported,
     subscribed: Boolean(activeWebPushEndpoint),
-    lastError: lastWebPushError
+    serverAvailable: pushBackendState !== 'static-unavailable',
+    backendState: pushBackendState,
+    lastError: pushBackendState === 'static-unavailable' ? '' : lastWebPushError
   };
 }
 
@@ -70,6 +101,10 @@ export async function ensureWebPushSubscription(login = store.currentAccountLogi
   }
   if (Notification.permission !== 'granted') {
     return { ok: false, reason: Notification.permission };
+  }
+  if (pushBackendState === 'static-unavailable') {
+    lastWebPushError = '';
+    return { ok: false, reason: 'static-host', staticOnly: true };
   }
   if (activeWebPushPromise && !scheduleItems) {
     return activeWebPushPromise;
@@ -118,6 +153,12 @@ export async function ensureWebPushSubscription(login = store.currentAccountLogi
         })
       });
 
+      if (resp.status === 404) {
+        pushBackendState = 'static-unavailable';
+        lastWebPushError = '';
+        return { ok: false, reason: 'static-host', staticOnly: true };
+      }
+
       const body = await resp.json().catch(() => ({}));
       if (!resp.ok) {
         lastWebPushError = body.error || `Push subscribe HTTP ${resp.status}`;
@@ -134,6 +175,10 @@ export async function ensureWebPushSubscription(login = store.currentAccountLogi
       }
       return { ok: true, endpoint: activeWebPushEndpoint };
     } catch (err) {
+      if (err && err.isStaticNoServer) {
+        lastWebPushError = '';
+        return { ok: false, reason: 'static-host', staticOnly: true };
+      }
       lastWebPushError = err?.message || 'Push subscription failed';
       return { ok: false, reason: 'subscribe-failed', error: lastWebPushError };
     } finally {
@@ -151,6 +196,7 @@ export async function ensureWebPushSubscription(login = store.currentAccountLogi
 async function syncServerPushSchedule(validItems, login = store.currentAccountLogin) {
   if (typeof window === 'undefined' || !('PushManager' in window) || !('Notification' in window)) return;
   if (Notification.permission !== 'granted') return;
+  if (pushBackendState === 'static-unavailable') return;
 
   const sig = JSON.stringify({
     login: login || '',
@@ -193,12 +239,13 @@ export async function unsubscribeWebPush() {
   const previousEndpoint = activeWebPushEndpoint;
   activeWebPushEndpoint = '';
   lastServerScheduleSig = '';
+  const canCallServer = pushBackendState !== 'static-unavailable';
   try {
     if ('serviceWorker' in navigator && 'PushManager' in window) {
       const reg = await getActiveServiceWorkerRegistration(1200);
       const sub = reg?.pushManager ? await reg.pushManager.getSubscription() : null;
       const endpoint = sub?.endpoint || previousEndpoint;
-      if (endpoint) {
+      if (endpoint && canCallServer) {
         await fetch('./api/push/unsubscribe', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -208,7 +255,7 @@ export async function unsubscribeWebPush() {
       if (sub) {
         await sub.unsubscribe().catch(() => {});
       }
-    } else if (previousEndpoint) {
+    } else if (previousEndpoint && canCallServer) {
       await fetch('./api/push/unsubscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -218,8 +265,47 @@ export async function unsubscribeWebPush() {
   } catch (_) {}
 }
 
+async function sendLocalServiceWorkerTestNotification(delaySec = 5) {
+  if (typeof window === 'undefined' || !('Notification' in window) || Notification.permission !== 'granted') {
+    return { ok: false, error: 'Разрешите системные уведомления в браузере' };
+  }
+
+  const safeDelay = Math.max(0, Math.min(25, Math.round(Number(delaySec) || 5)));
+  const payload = {
+    title: 'Малыш+: уведомление работает!',
+    body: safeDelay > 0
+      ? 'Тестовое системное уведомление пришло через Service Worker в свёрнутом режиме.'
+      : 'Тестовое системное уведомление доставлено.',
+    tag: `malysh-test-${Date.now()}`,
+    key: 'custom',
+    tab: 'journal',
+    requireInteraction: false
+  };
+
+  try {
+    const reg = await getActiveServiceWorkerRegistration(2000);
+    const worker = navigator.serviceWorker?.controller || reg?.active;
+    if (worker && typeof worker.postMessage === 'function') {
+      worker.postMessage({
+        type: 'SCHEDULE_TEST_NOTIFICATION',
+        delaySec: safeDelay,
+        payload
+      });
+      return { ok: true, queued: true, via: 'sw-local', delaySec: safeDelay };
+    }
+  } catch (_) {}
+
+  setTimeout(() => {
+    showSystemNotification(payload).catch(() => {});
+  }, safeDelay * 1000);
+  return { ok: true, queued: true, via: 'page-timer', delaySec: safeDelay };
+}
+
 export async function sendTestBackgroundPush(delaySec = 5) {
   const subResult = await ensureWebPushSubscription(store.currentAccountLogin || '', null);
+  if (subResult.staticOnly || pushBackendState === 'static-unavailable') {
+    return sendLocalServiceWorkerTestNotification(delaySec);
+  }
   if (!subResult.ok || !activeWebPushEndpoint) {
     return {
       ok: false,
@@ -240,6 +326,9 @@ export async function sendTestBackgroundPush(delaySec = 5) {
     if (resp.status === 404 || resp.status === 410 || data.needsResubscribe) {
       activeWebPushEndpoint = '';
       const retrySub = await ensureWebPushSubscription(store.currentAccountLogin || '', null);
+      if (retrySub.staticOnly || pushBackendState === 'static-unavailable') {
+        return sendLocalServiceWorkerTestNotification(delaySec);
+      }
       if (retrySub.ok && activeWebPushEndpoint) {
         const retryResp = await fetch('./api/push/test', {
           method: 'POST',
@@ -247,14 +336,14 @@ export async function sendTestBackgroundPush(delaySec = 5) {
           body: JSON.stringify({ endpoint: activeWebPushEndpoint, delaySec })
         });
         const retryData = await retryResp.json().catch(() => ({}));
-        if (retryResp.ok) return { ok: true, queued: Boolean(retryData.queued), delaySec };
+        if (retryResp.ok) return { ok: true, queued: Boolean(retryData.queued), via: 'web-push', delaySec };
         return { ok: false, error: retryData.error || 'Не удалось отправить Push-тест' };
       }
     }
     if (!resp.ok) {
       return { ok: false, error: data.error || `Push test HTTP ${resp.status}` };
     }
-    return { ok: true, queued: Boolean(data.queued), delaySec };
+    return { ok: true, queued: Boolean(data.queued), via: 'web-push', delaySec };
   } catch (err) {
     return { ok: false, error: err?.message || 'Ошибка сети при отправке теста' };
   }
